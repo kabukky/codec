@@ -2,8 +2,11 @@ package codec
 
 import (
 	/*
-		#include <libavcodec/avcodec.h>
-		#include <libavutil/avutil.h>
+		#cgo CFLAGS: -I/usr/local/include
+		#cgo LDFLAGS: -L/usr/local/lib  -lavformat -lavcodec -lavresample -lavutil -lx264 -lz -ldl -lm
+		
+		#include "libavcodec/avcodec.h"
+		#include "libavutil/avutil.h"
 		#include <string.h>
 		#include <stdio.h>
 
@@ -15,9 +18,9 @@ import (
 		} aacdec_t ;
 
 		static int aacdec_new(aacdec_t *m, uint8_t *buf, int len) {
-			m->c = avcodec_find_decoder(CODEC_ID_AAC);
+			m->c = avcodec_find_decoder(AV_CODEC_ID_AAC);
 			m->ctx = avcodec_alloc_context3(m->c);
-			m->f = av_frame_alloc();
+			m->f = avcodec_alloc_frame();
 			m->ctx->extradata = buf;
 			m->ctx->extradata_size = len;
 			m->ctx->debug = 0x3;

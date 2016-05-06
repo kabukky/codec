@@ -22,10 +22,11 @@ import (
 	"unsafe"
 
 	/*
-		#cgo LDFLAGS: -lavformat -lavutil -lavcodec
+		#cgo CFLAGS: -I/usr/local/include
+		#cgo LDFLAGS: -lavformat -lavcodec -lavresample -lavutil -lx264 -lz -ldl -lm
 
-		#include <libavutil/avutil.h>
-		#include <libavformat/avformat.h>
+		#include "libavutil/avutil.h"
+		#include "libavformat/avformat.h"
 
 		static void libav_init() {
 			av_register_all();

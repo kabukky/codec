@@ -2,8 +2,11 @@ package codec
 
 import (
 	/*
-			#include <libavcodec/avcodec.h>
-			#include <libavutil/avutil.h>
+			#cgo CFLAGS: -I/usr/local/include
+			#cgo LDFLAGS: -L/usr/local/lib  -lavformat -lavcodec -lavresample -lavutil -lx264 -lz -ldl -lm
+			
+			#include "libavcodec/avcodec.h"
+			#include "libavutil/avutil.h"
 			#include <string.h>
 
 			typedef struct {
@@ -17,14 +20,14 @@ import (
 			} aacenc_t ;
 
 			static int aacenc_new(aacenc_t *m) {
-				m->c = avcodec_find_encoder(CODEC_ID_AAC);
+				m->c = avcodec_find_encoder(AV_CODEC_ID_AAC);
 				m->ctx = avcodec_alloc_context3(m->c);
 				m->ctx->sample_fmt = AV_SAMPLE_FMT_FLTP;
 				m->ctx->sample_rate = m->samplerate;
 				m->ctx->bit_rate = m->bitrate;
 				m->ctx->channels = m->channels;
 		  	m->ctx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
-				m->f = av_frame_alloc();
+				m->f = avcodec_alloc_frame();
 				int r = avcodec_open2(m->ctx, m->c, 0);
 				av_log(m->ctx, AV_LOG_DEBUG, "extra %d\n", m->ctx->extradata_size);
 				return r;

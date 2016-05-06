@@ -2,9 +2,12 @@ package codec
 
 import (
 	/*
-		#include <libavcodec/avcodec.h>
-		#include <libavformat/avformat.h>
-		#include <libavutil/avutil.h>
+		#cgo CFLAGS: -I/usr/local/include
+		#cgo LDFLAGS: -L/usr/local/lib  -lavformat -lavcodec -lavresample -lavutil -lx264 -lz -ldl -lm
+		
+		#include "libavcodec/avcodec.h"
+		#include "libavutil/avutil.h"
+		#include "libavformat/avformat.h"
 
 		typedef struct {
 			AVCodec *c;
@@ -14,9 +17,9 @@ import (
 		} h264dec_t ;
 
 		static int h264dec_new(h264dec_t *h, uint8_t *data, int len) {
-			h->c = avcodec_find_decoder(CODEC_ID_H264);
+			h->c = avcodec_find_decoder(AV_CODEC_ID_H264);
 			h->ctx = avcodec_alloc_context3(h->c);
-			h->f = av_frame_alloc();
+			h->f = avcodec_alloc_frame();
 			h->ctx->extradata = data;
 			h->ctx->extradata_size = len;
 			h->ctx->debug = 0x3;
