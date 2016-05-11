@@ -90,12 +90,12 @@ import (
 		}
 
 		static int write_pkt(avformat_t *m, AVPacket *pkt) {
-			printf("pkt pts %lld, %d %d\n",pkt->pts, m->video_st->codec->time_base.num,m->video_st->codec->time_base.den);
-			printf("pkt pts %lld, %d %d\n",pkt->pts, m->video_st->time_base.num,m->video_st->time_base.den);
+			//printf("pkt pts %ld, %d %d\n",pkt->pts, m->video_st->codec->time_base.num,m->video_st->codec->time_base.den);
+			//printf("pkt pts %ld, %d %d\n",pkt->pts, m->video_st->time_base.num,m->video_st->time_base.den);
 
 			av_packet_rescale_ts(pkt, m->video_st->codec->time_base, m->video_st->time_base);
 			int64_t tt = 12345678;
-			printf("pkt pts %lld, t %lld\n",pkt->pts,tt);
+			//printf("pkt pts %ld, t %ld\n",pkt->pts,tt);
 			pkt->stream_index = m->video_st->index;
 			int ret = av_interleaved_write_frame(m->ctx, pkt);
 			return ret;

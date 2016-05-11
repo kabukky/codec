@@ -55,8 +55,6 @@ import (
 		}
 
 		static void set_ppts(h264enc_t *m, int64_t ppts) {
-			printf("set_ppts %lld\n", ppts);
-
 			m->ppts = ppts;
 			m->f->pts = ppts;
 		}
