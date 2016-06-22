@@ -4,7 +4,7 @@ import (
 	/*
 		#cgo CFLAGS: -I/usr/local/include
 		#cgo LDFLAGS: -L/usr/local/lib  -lavformat -lavcodec -lavresample -lavutil -lx264 -lz -ldl -lm
-		
+
 		#include "libavcodec/avcodec.h"
 		#include "libavutil/avutil.h"
 		#include "libavformat/avformat.h"
@@ -46,11 +46,13 @@ type H264Decoder struct {
 
 func NewH264Decoder(header []byte) (m *H264Decoder, err error) {
 	m = &H264Decoder{}
+	avLock.Lock()
 	r := C.h264dec_new(
 		&m.m,
 		(*C.uint8_t)(unsafe.Pointer(&header[0])),
 		(C.int)(len(header)),
 	)
+	avLock.Unlock()
 	if int(r) < 0 {
 		err = errors.New("open codec failed")
 	}

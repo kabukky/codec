@@ -3,7 +3,7 @@ package codec
 import (
 	/*
 		#cgo CFLAGS: -I/usr/local/include
-		#cgo LDFLAGS: -L/usr/local/lib  -lavformat -lavcodec -lavresample -lavutil -lx264 -lz -ldl -lm
+		#cgo LDFLAGS: -L/usr/local/lib  -lavformat -lavcodec -lavresample -lavutil -lfdk-aac -lx264 -lz -ldl -lm
 
 		#include <stdio.h>
 		#include <stdlib.h>
@@ -20,6 +20,7 @@ import (
 			char *preset[2];
 			char *profile;
 			int bitrate;
+			int framerate;
 			int got;
 			AVCodec *c;
 			AVCodecContext *ctx;
@@ -29,9 +30,12 @@ import (
 
 		typedef struct {
 			AVStream *video_st;
+			AVStream *audio_st;
 			AVFormatContext *ctx;
 			AVOutputFormat *fmt;
 			char *filename;
+			AVPacket pkt;
+			AVCodec *c;
 		} avformat_t;
 
 		static int avformat_new(avformat_t *m, char *filename) {
@@ -51,8 +55,9 @@ import (
 			if (avio_open(&m->ctx->pb, filename, AVIO_FLAG_WRITE) < 0) {
 				fprintf(stderr, "Could not open '%s'\n", filename);
 
-				return 1;
+				return -1;
 			}
+			av_init_packet(&m->pkt);
 
 			return 0;
 		}
@@ -82,7 +87,45 @@ import (
 			return 0;
 		}
 
+		static int add_video_stream2(avformat_t *m) {
+			m->video_st = avformat_new_stream(m->ctx, NULL);
+
+			return 0;
+		}
+
+		static int add_audio_stream2(avformat_t *m) {
+			m->c = avcodec_find_encoder(AV_CODEC_ID_AAC);
+			m->audio_st = avformat_new_stream(m->ctx, m->c);
+
+			return 0;
+		}
+
+		static int open_video_stream2(avformat_t *m) {
+			if (avcodec_open2(m->video_st->codec, NULL, NULL) < 0) {
+				fprintf(stderr, "could not open codec\n");
+			}
+
+			//av_dump_format(m->ctx, 0, m->filename, 1);
+
+			return 0;
+
+		}
+
+		static int open_codec(avformat_t *m) {
+			int r = avcodec_open2(m->audio_st->codec, NULL, NULL);
+			if (r < 0) {
+				fprintf(stderr, "could not open codec\n");
+				return r;
+			}
+
+			av_dump_format(m->ctx, 0, m->filename, 1);
+
+			return r;
+		}
+
 		static int write_header(avformat_t *m) {
+			av_dump_format(m->ctx, 0, m->filename, 1);
+
 			// Write the stream header, if any.
 			avformat_write_header(m->ctx, NULL);
 
@@ -94,10 +137,57 @@ import (
 			//printf("pkt pts %ld, %d %d\n",pkt->pts, m->video_st->time_base.num,m->video_st->time_base.den);
 
 			av_packet_rescale_ts(pkt, m->video_st->codec->time_base, m->video_st->time_base);
+
 			int64_t tt = 12345678;
 			//printf("pkt pts %ld, t %ld\n",pkt->pts,tt);
 			pkt->stream_index = m->video_st->index;
 			int ret = av_interleaved_write_frame(m->ctx, pkt);
+			//int ret = av_write_frame(m->ctx, pkt);
+			//int ret = 0;
+			return ret;
+		}
+
+		static int write_pkt2(avformat_t *m, uint8_t *data, int len, int64_t tm, int isKeyFrame) {
+			AVPacket pkt;
+			av_init_packet(&pkt);
+			pkt.data = data;
+			pkt.size = len;
+			pkt.stream_index = m->video_st->index;
+			pkt.pts = tm;
+			pkt.dts = tm;
+			printf("pts: %ld, tm: %ld\n", pkt.pts, tm);
+			av_packet_rescale_ts(&pkt, m->video_st->codec->time_base, m->video_st->time_base);
+			printf("pts: %ld, dts: %ld, len: %d\n", pkt.pts, pkt.dts,len);
+			if(isKeyFrame) {
+				pkt.flags |= AV_PKT_FLAG_KEY;
+			}
+			//int ret = av_interleaved_write_frame(m->ctx, &pkt);
+			int ret = av_write_frame(m->ctx, &pkt);
+			static char error_buffer[255];
+			av_strerror(ret, error_buffer, sizeof(error_buffer));
+			printf("pts: %ld, dts: %ld, error: %s\n", pkt.pts, tm, error_buffer);
+
+			return ret;
+		}
+
+		static int write_audio_pkt2(avformat_t *m, uint8_t *data, int len, int64_t tm) {
+			AVPacket pkt;
+			av_init_packet(&pkt);
+			pkt.data = data;
+			pkt.size = len;
+			pkt.stream_index = m->audio_st->index;
+			pkt.pts = tm;
+			pkt.dts = tm;
+			//printf("pts: %ld, tm: %ld\n", pkt.pts, tm);
+			//av_packet_rescale_ts(&pkt, m->audio_st->codec->time_base, m->audio_st->time_base);
+			//printf("pts: %ld, dts: %ld, len: %d\n", pkt.pts, pkt.dts,len);
+
+			int ret = av_interleaved_write_frame(m->ctx, &pkt);
+			//int ret = av_write_frame(m->ctx, &pkt);
+			static char error_buffer[255];
+			av_strerror(ret, error_buffer, sizeof(error_buffer));
+			printf("pts: %ld, dts: %ld, error: %s\n", pkt.pts, tm, error_buffer);
+
 			return ret;
 		}
 
@@ -109,31 +199,146 @@ import (
 		}
 	*/
 	"C"
-	//	"errors"
-	//	"image"
+	"errors"
+	"image"
 	//	"strings"
-	"unsafe"
+	"bytes"
 	//"log"
+	"unsafe"
 )
+import "fmt"
 
-type AVFormat struct {
-	m      C.avformat_t
-	fname  string
-	Header []byte
+type AVRational struct {
+	Num, Den int
 }
 
-func CreateAVFormat(fname string) *AVFormat {
+type AVStreamInfo struct {
+	W        int
+	H        int
+	Pixfmt   image.YCbCrSubsampleRatio
+	Bitrate  int
+	TimeBase AVRational
+	GopSize  int
+	Extra    []byte
+}
+
+type AVFormat struct {
+	m           C.avformat_t
+	videoStream AVStreamInfo
+	fname       string
+	Header      []byte
+	frameBuf    bytes.Buffer
+	pts         int64
+}
+
+func CreateAVFormat(fname string) (*AVFormat, error) {
 	f := &AVFormat{}
 
 	f.fname = fname
-	C.avformat_new(&f.m, C.CString(fname))
-
-	return f
+	r := C.avformat_new(&f.m, C.CString(fname))
+	if int(r) < 0 {
+		err := errors.New("Create format failed")
+		return nil, err
+	}
+	return f, nil
 }
 
 func (f *AVFormat) AddVideoStream(enc *H264Encoder) {
 	C.add_video_stream(&f.m, &enc.m)
 	f.Header = fromCPtr(unsafe.Pointer(f.m.video_st.codec.extradata), (int)(f.m.video_st.codec.extradata_size))
+}
+
+func (f *AVFormat) AddVideoStream2(info *AVStreamInfo) (err error) {
+	// add video stream
+	C.add_video_stream2(&f.m)
+
+	// setup codec
+	f.m.video_st.codec.codec_type = C.AVMEDIA_TYPE_VIDEO
+	f.m.video_st.codec.codec_id = C.AV_CODEC_ID_H264
+
+	if info.Extra != nil {
+		f.m.video_st.codec.extradata = (*C.uint8_t)(unsafe.Pointer(&info.Extra[0]))
+		f.m.video_st.codec.extradata_size = (C.int)(len(info.Extra))
+	}
+
+	f.m.video_st.codec.width = C.int(info.W)
+	f.m.video_st.codec.height = C.int(info.H)
+	f.m.video_st.codec.bit_rate = C.int(info.Bitrate)
+	f.m.video_st.codec.time_base.num = C.int(info.TimeBase.Num)
+	f.m.video_st.codec.time_base.den = C.int(info.TimeBase.Den)
+	f.m.video_st.codec.gop_size = C.int(info.GopSize)
+	// pix_fmt has int32 type, but not C.int32() method
+	switch info.Pixfmt {
+	case image.YCbCrSubsampleRatio444:
+		f.m.video_st.codec.pix_fmt = C.PIX_FMT_YUV444P
+	case image.YCbCrSubsampleRatio422:
+		f.m.video_st.codec.pix_fmt = C.PIX_FMT_YUV422P
+	case image.YCbCrSubsampleRatio420:
+		f.m.video_st.codec.pix_fmt = C.PIX_FMT_YUV420P
+	}
+	f.m.video_st.codec.flags |= C.CODEC_FLAG_GLOBAL_HEADER
+
+	// setup stream
+	f.m.video_st.time_base.num = C.int(info.TimeBase.Num)
+	f.m.video_st.time_base.den = C.int(info.TimeBase.Den)
+
+	return
+}
+
+func (f *AVFormat) AddAudioStream2(codecExtra []byte) (err error) {
+	// add video stream
+	C.add_audio_stream2(&f.m)
+
+	// setup codec
+	f.m.audio_st.codec.codec_type = C.AVMEDIA_TYPE_AUDIO
+	f.m.audio_st.codec.codec_id = C.AV_CODEC_ID_AAC
+
+	f.m.audio_st.codec.sample_rate = 8000
+	f.m.audio_st.codec.channels = 2
+	f.m.audio_st.codec.channel_layout = 3
+	f.m.audio_st.codec.profile = C.FF_PROFILE_AAC_LOW
+	f.m.audio_st.codec.sample_fmt = C.AV_SAMPLE_FMT_S16
+
+	if codecExtra != nil {
+		f.m.audio_st.codec.extradata = (*C.uint8_t)(unsafe.Pointer(&codecExtra[0]))
+		f.m.audio_st.codec.extradata_size = (C.int)(len(codecExtra))
+	}
+
+	f.m.audio_st.codec.flags |= C.CODEC_FLAG_GLOBAL_HEADER
+
+	avLock.Lock()
+	defer avLock.Unlock()
+
+	r := C.open_codec(&f.m)
+	if int(r) != 0 {
+		return errors.New("Failed open AAC format codec ...")
+	}
+
+	// setup stream
+	f.m.audio_st.time_base.num = C.int(1)
+	f.m.audio_st.time_base.den = C.int(8000)
+
+	return
+}
+
+func (f *AVFormat) AddAudioPcmStream() (err error) {
+	// add video stream
+	C.add_audio_stream2(&f.m)
+
+	// setup codec
+	f.m.audio_st.codec.codec_type = C.AVMEDIA_TYPE_AUDIO
+	f.m.audio_st.codec.codec_id = C.AV_CODEC_ID_PCM_S16LE
+
+	f.m.audio_st.codec.sample_rate = 8000
+	f.m.audio_st.codec.channels = 1
+	f.m.audio_st.codec.channel_layout = 4
+	f.m.audio_st.codec.sample_fmt = C.AV_SAMPLE_FMT_S16
+
+	// setup stream
+	f.m.audio_st.time_base.num = C.int(1)
+	f.m.audio_st.time_base.den = C.int(8000)
+
+	return
 }
 
 func (f *AVFormat) WriteHeader() {
@@ -142,6 +347,41 @@ func (f *AVFormat) WriteHeader() {
 
 func (f *AVFormat) WritePacket(enc *H264Encoder) {
 	C.write_pkt(&f.m, &enc.m.pkt)
+}
+
+func (f *AVFormat) WritePacket2(o *H264Out) {
+	defer o.Free()
+
+	C.write_pkt(&f.m, &o.pkt)
+}
+
+func (f *AVFormat) WriteVideoData(nal []byte, timeStamp uint32, isKeyFrame bool) (err error) {
+	//tm := int64(timeStamp)
+	ikf := 0
+	if isKeyFrame {
+		ikf = 1
+	}
+	r := C.write_pkt2(&f.m, (*C.uint8_t)(unsafe.Pointer(&nal[0])), (C.int)(len(nal)), C.int64_t(f.pts), C.int(ikf))
+	f.pts++
+
+	if int(r) != 0 {
+		err = errors.New(fmt.Sprintf("Write video data failed, code:%v", r))
+		return
+	}
+
+	return
+}
+
+func (f *AVFormat) WriteAudioData(nal []byte, timeStamp uint32) (err error) {
+	r := C.write_audio_pkt2(&f.m, (*C.uint8_t)(unsafe.Pointer(&nal[0])), (C.int)(len(nal)), C.int64_t(f.pts))
+	f.pts += 128
+
+	if int(r) != 0 {
+		err = errors.New(fmt.Sprintf("Write audio data failed, code:%v", r))
+		return
+	}
+
+	return
 }
 
 func (f *AVFormat) Close() {

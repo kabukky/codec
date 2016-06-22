@@ -36,6 +36,11 @@ import (
 	"C"
 )
 
+import "sync"
+
+// open /close function not thread safe
+var avLock sync.Mutex
+
 func init() {
 	C.libav_init()
 }
