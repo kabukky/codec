@@ -22,7 +22,7 @@ import (
 			h->f = av_frame_alloc();
 			h->ctx->extradata = data;
 			h->ctx->extradata_size = len;
-			h->ctx->debug = 0x3;
+			h->ctx->debug = 0x00;
 			return avcodec_open2(h->ctx, h->c, 0);
 		}
 
@@ -41,7 +41,8 @@ import (
 )
 
 type H264Decoder struct {
-	m C.h264dec_t
+	m   C.h264dec_t
+	Pts int64
 }
 
 func NewH264Decoder(header []byte) (m *H264Decoder, err error) {
@@ -78,6 +79,8 @@ func (m *H264Decoder) Decode(nal []byte) (f *image.YCbCr, err error) {
 	h := int(m.m.f.height)
 	ys := int(m.m.f.linesize[0])
 	cs := int(m.m.f.linesize[1])
+
+	m.Pts = int64(m.m.f.pts)
 
 	f = &image.YCbCr{
 		Y:              fromCPtr(unsafe.Pointer(m.m.f.data[0]), ys*h),

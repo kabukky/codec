@@ -46,7 +46,7 @@ import (
 			av_init_packet(&pkt);
 			pkt.data = data;
 			pkt.size = len;
-			//av_log(m->ctx, AV_LOG_DEBUG, "decode %p\n", m);
+
 			int r = avcodec_decode_audio4(m->ctx, m->f, &m->got, &pkt);
 			if(r < 0) {
 				static char error_buffer[255];

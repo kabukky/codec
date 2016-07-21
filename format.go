@@ -45,7 +45,7 @@ import (
 
 			m->fmt = av_guess_format(NULL, filename, NULL);
 			if (!m->fmt) {
-				printf("Could not deduce output format from file extension: using MPEG.\n");
+				av_log(m->ctx, AV_LOG_DEBUG, "Could not deduce output format from file extension: using MPEG.\n");
 				m->fmt = av_guess_format("mpeg", NULL, NULL);
 			}
 
@@ -53,7 +53,7 @@ import (
 
 			// Open output file
 			if (avio_open(&m->ctx->pb, filename, AVIO_FLAG_WRITE) < 0) {
-				fprintf(stderr, "Could not open '%s'\n", filename);
+				av_log(m->ctx, AV_LOG_DEBUG, "Could not open '%s'\n", filename);
 
 				return -1;
 			}
@@ -64,7 +64,7 @@ import (
 
 		static int add_video_stream(avformat_t *m, h264enc_t *enc) {
 			m->video_st = avformat_new_stream(m->ctx, enc->c);
-			printf("%s\n",m->video_st->codec->codec->long_name);
+			//printf("%s\n",m->video_st->codec->codec->long_name);
 
 			m->video_st->codec->width  		= enc->ctx->width;
 			m->video_st->codec->height 		= enc->ctx->height;
@@ -74,12 +74,10 @@ import (
 			m->video_st->time_base	= enc->ctx->time_base;
 			m->video_st->codec->gop_size	= enc->ctx->gop_size;
 			m->video_st->codec->pix_fmt 	= enc->ctx->pix_fmt;
-			//m->ctx->flags |= CODEC_FLAG_GLOBAL_HEADER;
-
 			m->video_st->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;
 
 			if (avcodec_open2(m->video_st->codec, NULL, NULL) < 0) {
-				fprintf(stderr, "could not open codec\n");
+				av_log(m->ctx, AV_LOG_DEBUG, "could not open codec\n");
 			}
 
 			av_dump_format(m->ctx, 0, m->filename, 1);
@@ -103,6 +101,7 @@ import (
 		static int open_video_stream2(avformat_t *m) {
 			if (avcodec_open2(m->video_st->codec, NULL, NULL) < 0) {
 				fprintf(stderr, "could not open codec\n");
+				av_log(m->ctx, AV_LOG_DEBUG, "could not open codec\n");
 			}
 
 			//av_dump_format(m->ctx, 0, m->filename, 1);
@@ -114,7 +113,7 @@ import (
 		static int open_codec(avformat_t *m) {
 			int r = avcodec_open2(m->audio_st->codec, NULL, NULL);
 			if (r < 0) {
-				fprintf(stderr, "could not open codec\n");
+				av_log(m->ctx, AV_LOG_DEBUG, "could not open codec\n");
 				return r;
 			}
 
@@ -157,15 +156,16 @@ import (
 			pkt.dts = tm;
 			printf("pts: %ld, tm: %ld\n", pkt.pts, tm);
 			av_packet_rescale_ts(&pkt, m->video_st->codec->time_base, m->video_st->time_base);
-			printf("pts: %ld, dts: %ld, len: %d\n", pkt.pts, pkt.dts,len);
+			av_log(m->ctx, AV_LOG_DEBUG, "pts: %ld, dts: %ld, len: %d\n", pkt.pts, pkt.dts,len);
 			if(isKeyFrame) {
 				pkt.flags |= AV_PKT_FLAG_KEY;
 			}
 			//int ret = av_interleaved_write_frame(m->ctx, &pkt);
 			int ret = av_write_frame(m->ctx, &pkt);
+
 			static char error_buffer[255];
 			av_strerror(ret, error_buffer, sizeof(error_buffer));
-			printf("pts: %ld, dts: %ld, error: %s\n", pkt.pts, tm, error_buffer);
+			av_log(m->ctx, AV_LOG_DEBUG, "pts: %ld, dts: %ld, error: %s\n", pkt.pts, tm, error_buffer);
 
 			return ret;
 		}
@@ -178,15 +178,17 @@ import (
 			pkt.stream_index = m->audio_st->index;
 			pkt.pts = tm;
 			pkt.dts = tm;
+
 			//printf("pts: %ld, tm: %ld\n", pkt.pts, tm);
 			//av_packet_rescale_ts(&pkt, m->audio_st->codec->time_base, m->audio_st->time_base);
 			//printf("pts: %ld, dts: %ld, len: %d\n", pkt.pts, pkt.dts,len);
 
 			int ret = av_interleaved_write_frame(m->ctx, &pkt);
 			//int ret = av_write_frame(m->ctx, &pkt);
+
 			static char error_buffer[255];
 			av_strerror(ret, error_buffer, sizeof(error_buffer));
-			printf("pts: %ld, dts: %ld, error: %s\n", pkt.pts, tm, error_buffer);
+			av_log(m->ctx, AV_LOG_DEBUG, "pts: %ld, dts: %ld, error: %s\n", pkt.pts, tm, error_buffer);
 
 			return ret;
 		}

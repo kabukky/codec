@@ -57,8 +57,9 @@ import (
 						m->ctx->channel_layout = m->channel_layout;
 						m->ctx->profile = m->profile;
 						m->ctx->flags |= CODEC_FLAG_GLOBAL_HEADER;
+						m->ctx->debug = 0x00;
 
-				  	m->ctx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
+				  		m->ctx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
 
 						int r = avcodec_open2(m->ctx, m->c, NULL);
 						av_log(m->ctx, AV_LOG_DEBUG, "extra %d\n", m->ctx->extradata_size);
@@ -76,7 +77,7 @@ import (
 						int ret = avcodec_fill_audio_frame(m->f, 2, AV_SAMPLE_FMT_S16,(const uint8_t*)samples, 4096, 0);
 
 						if (ret < 0) {
-							printf("Bind buffer failed ...\n");
+							av_log(m->ctx, AV_LOG_DEBUG, "Bind buffer failed ...\n");
 							return;
 						}
 					}
@@ -92,8 +93,6 @@ import (
 						m->size = pkt.size;
 						m->pts = pkt.pts;
 						m->dts = pkt.dts;
-
-						printf("aac encode: pts: %ld, dts: %ld\n", pkt.pts, pkt.dts);
 					}
 
 					static int get_buffer_size(aacenc_t *m) {
@@ -296,7 +295,7 @@ func (m *AACEncoder) Encode2(channels []AChannelSamples) (ret *AACOut, err error
 
 	// until codec buf not full, return no_data
 	if m.bufLen < m.frameSize {
-		err = errors.New("no data")
+		err = errors.New("more data")
 		return
 	}
 
@@ -308,7 +307,7 @@ func (m *AACEncoder) Encode2(channels []AChannelSamples) (ret *AACOut, err error
 
 	// after encode, copy remind samples
 	if n < samplesCount {
-		log.Println("Copy remaining data:", samplesCount-n)
+		//log.Println("Copy remaining data:", samplesCount-n)
 		m.samplesToBuf(channels, samplesCount, n)
 	}
 
@@ -318,7 +317,7 @@ func (m *AACEncoder) Encode2(channels []AChannelSamples) (ret *AACOut, err error
 		return
 	}
 
-	log.Println("Encoded data size:", m.m.size)
+	//log.Println("Encoded data size:", m.m.size)
 
 	// extract and return encoded data
 	ret = &AACOut{

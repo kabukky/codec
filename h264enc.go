@@ -40,6 +40,7 @@ import (
 			m->ctx->gop_size = 15;
 			m->ctx->pix_fmt = m->pixfmt;
 			m->ctx->flags |= CODEC_FLAG_GLOBAL_HEADER;
+			m->ctx->debug = 0x00;
 
 		    AVFrame *picture;
 		    picture = av_frame_alloc();
@@ -47,9 +48,9 @@ import (
 		    picture->width  = m->ctx->width;
 		    picture->height = m->ctx->height;
 		    if (av_frame_get_buffer(picture, 32) < 0) {
-		        fprintf(stderr, "Could not allocate frame data.\n");
+				av_log(m->ctx, AV_LOG_DEBUG, "Could not allocate frame data.\n");
 		    }
-			av_frame_make_writable(picture);
+			//av_frame_make_writable(picture);
 			m->f = picture;
 
 			return avcodec_open2(m->ctx, NULL, NULL);
@@ -64,7 +65,6 @@ import (
 	"C"
 	"errors"
 	"image"
-	"log"
 	"strings"
 	"unsafe"
 )
@@ -203,7 +203,8 @@ func (m *H264Encoder) Encode(img *image.YCbCr) (out *H264Out, err error) {
 		f.linesize[1] = (C.int)(img.CStride)
 		f.linesize[2] = (C.int)(img.CStride)
 
-		log.Println("avf pts:", m.pts)
+		//log.Println("avf pts:", m.pts)
+
 		f.pts = (C.int64_t)(m.pts)
 		C.set_ppts(&m.m, (C.int64_t)(m.pts))
 		m.pts++
@@ -229,7 +230,9 @@ func (m *H264Encoder) Encode(img *image.YCbCr) (out *H264Out, err error) {
 		err = errors.New("packet size == 0")
 		return
 	}
-	log.Println("pkt pts:", out.pkt.pts)
+
+	//log.Println("pkt pts:", out.pkt.pts)
+
 	// out.Data = make([]byte, m.m.pkt.size)
 	// C.memcpy(
 	// 	unsafe.Pointer(&out.Data[0]),
