@@ -136,6 +136,7 @@ import (
 			//printf("pkt pts %ld, %d %d\n",pkt->pts, m->video_st->time_base.num,m->video_st->time_base.den);
 
 			av_packet_rescale_ts(pkt, m->video_st->codec->time_base, m->video_st->time_base);
+			av_log(m->ctx, AV_LOG_DEBUG, "write packet: pts: %ld, dts: %ld\n", pkt->pts, pkt->dts);
 
 			int64_t tt = 12345678;
 			//printf("pkt pts %ld, t %ld\n",pkt->pts,tt);
@@ -143,6 +144,11 @@ import (
 			int ret = av_interleaved_write_frame(m->ctx, pkt);
 			//int ret = av_write_frame(m->ctx, pkt);
 			//int ret = 0;
+
+			// static char error_buffer[255];
+			// av_strerror(ret, error_buffer, sizeof(error_buffer));
+			// av_log(m->ctx, AV_LOG_DEBUG, "write packet: pts: %ld, dts: %ld, error: %s\n", pkt->pts, pkt->dts, error_buffer);
+
 			return ret;
 		}
 
