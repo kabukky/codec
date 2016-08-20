@@ -185,16 +185,14 @@ import (
 			pkt.pts = tm;
 			pkt.dts = tm;
 
-			//printf("pts: %ld, tm: %ld\n", pkt.pts, tm);
-			//av_packet_rescale_ts(&pkt, m->audio_st->codec->time_base, m->audio_st->time_base);
-			//printf("pts: %ld, dts: %ld, len: %d\n", pkt.pts, pkt.dts,len);
+			av_packet_rescale_ts(&pkt, m->audio_st->codec->time_base, m->audio_st->time_base);
+			av_log(m->ctx, AV_LOG_DEBUG, "rescale: pts: %ld, dts: %ld, len: %d\n", pkt.pts, pkt.dts,len);
 
 			int ret = av_interleaved_write_frame(m->ctx, &pkt);
-			//int ret = av_write_frame(m->ctx, &pkt);
 
 			static char error_buffer[255];
 			av_strerror(ret, error_buffer, sizeof(error_buffer));
-			av_log(m->ctx, AV_LOG_DEBUG, "pts: %ld, dts: %ld, error: %s\n", pkt.pts, tm, error_buffer);
+			av_log(m->ctx, AV_LOG_DEBUG, "write: pts: %ld, dts: %ld, error: %s\n", pkt.pts, tm, error_buffer);
 
 			return ret;
 		}
@@ -216,18 +214,31 @@ import (
 )
 import "fmt"
 
+const (
+	AVMEDIA_TYPE_VIDEO = 0
+	AVMEDIA_TYPE_AUDIO = 1
+)
+
 type AVRational struct {
 	Num, Den int
 }
 
 type AVStreamInfo struct {
+	// video
 	W        int
 	H        int
 	Pixfmt   image.YCbCrSubsampleRatio
 	Bitrate  int
 	TimeBase AVRational
 	GopSize  int
-	Extra    []byte
+
+	// audio
+	SampleRate    int
+	ABitRate      int
+	Channels      int
+	ChannelLayout int
+	Profile       int
+	SampleFmt     int32
 }
 
 type AVFormat struct {
@@ -256,7 +267,7 @@ func (f *AVFormat) AddVideoStream(enc *H264Encoder) {
 	f.Header = fromCPtr(unsafe.Pointer(f.m.video_st.codec.extradata), (int)(f.m.video_st.codec.extradata_size))
 }
 
-func (f *AVFormat) AddVideoStream2(info *AVStreamInfo) (err error) {
+func (f *AVFormat) AddVideoStream2(info *AVStreamInfo, extra []byte) (err error) {
 	// add video stream
 	C.add_video_stream2(&f.m)
 
@@ -264,9 +275,9 @@ func (f *AVFormat) AddVideoStream2(info *AVStreamInfo) (err error) {
 	f.m.video_st.codec.codec_type = C.AVMEDIA_TYPE_VIDEO
 	f.m.video_st.codec.codec_id = C.AV_CODEC_ID_H264
 
-	if info.Extra != nil {
-		f.m.video_st.codec.extradata = (*C.uint8_t)(unsafe.Pointer(&info.Extra[0]))
-		f.m.video_st.codec.extradata_size = (C.int)(len(info.Extra))
+	if extra != nil {
+		f.m.video_st.codec.extradata = (*C.uint8_t)(unsafe.Pointer(&extra[0]))
+		f.m.video_st.codec.extradata_size = (C.int)(len(extra))
 	}
 
 	f.m.video_st.codec.width = C.int(info.W)
@@ -287,13 +298,13 @@ func (f *AVFormat) AddVideoStream2(info *AVStreamInfo) (err error) {
 	f.m.video_st.codec.flags |= C.CODEC_FLAG_GLOBAL_HEADER
 
 	// setup stream
-	f.m.video_st.time_base.num = C.int(info.TimeBase.Num)
-	f.m.video_st.time_base.den = C.int(info.TimeBase.Den)
+	f.m.video_st.time_base.num = 1
+	f.m.video_st.time_base.den = 1000
 
 	return
 }
 
-func (f *AVFormat) AddAudioStream2(codecExtra []byte) (err error) {
+func (f *AVFormat) AddAudioStream2(info *AVStreamInfo, extra []byte) (err error) {
 	// add video stream
 	C.add_audio_stream2(&f.m)
 
@@ -301,18 +312,23 @@ func (f *AVFormat) AddAudioStream2(codecExtra []byte) (err error) {
 	f.m.audio_st.codec.codec_type = C.AVMEDIA_TYPE_AUDIO
 	f.m.audio_st.codec.codec_id = C.AV_CODEC_ID_AAC
 
-	f.m.audio_st.codec.sample_rate = 8000
-	f.m.audio_st.codec.channels = 2
-	f.m.audio_st.codec.channel_layout = 3
-	f.m.audio_st.codec.profile = C.FF_PROFILE_AAC_LOW
+	f.m.audio_st.codec.sample_rate = C.int(info.SampleRate)
+	f.m.audio_st.codec.channels = C.int(info.Channels)
+	f.m.audio_st.codec.channel_layout = C.uint64_t(info.ChannelLayout)
+	f.m.audio_st.codec.profile = C.int(info.Profile)
+	//f.m.audio_st.codec.sample_fmt = info.SampleFmt
 	f.m.audio_st.codec.sample_fmt = C.AV_SAMPLE_FMT_S16
 
-	if codecExtra != nil {
-		f.m.audio_st.codec.extradata = (*C.uint8_t)(unsafe.Pointer(&codecExtra[0]))
-		f.m.audio_st.codec.extradata_size = (C.int)(len(codecExtra))
+	if extra != nil {
+		f.m.audio_st.codec.extradata = (*C.uint8_t)(unsafe.Pointer(&extra))
+		f.m.audio_st.codec.extradata_size = (C.int)(len(extra))
 	}
 
 	f.m.audio_st.codec.flags |= C.CODEC_FLAG_GLOBAL_HEADER
+
+	// setup stream
+	f.m.audio_st.time_base.num = C.int(1)
+	f.m.audio_st.time_base.den = C.int(info.SampleRate)
 
 	avLock.Lock()
 	defer avLock.Unlock()
@@ -321,10 +337,6 @@ func (f *AVFormat) AddAudioStream2(codecExtra []byte) (err error) {
 	if int(r) != 0 {
 		return errors.New("Failed open AAC format codec ...")
 	}
-
-	// setup stream
-	f.m.audio_st.time_base.num = C.int(1)
-	f.m.audio_st.time_base.den = C.int(8000)
 
 	return
 }
@@ -382,7 +394,7 @@ func (f *AVFormat) WriteVideoData(nal []byte, timeStamp uint32, isKeyFrame bool)
 
 func (f *AVFormat) WriteAudioData(nal []byte, timeStamp uint32) (err error) {
 	r := C.write_audio_pkt2(&f.m, (*C.uint8_t)(unsafe.Pointer(&nal[0])), (C.int)(len(nal)), C.int64_t(f.pts))
-	f.pts += 128
+	f.pts += 1024
 
 	if int(r) != 0 {
 		err = errors.New(fmt.Sprintf("Write audio data failed, code:%v", r))

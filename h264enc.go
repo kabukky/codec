@@ -37,7 +37,8 @@ import (
 			m->ctx->height = m->h;
 			m->ctx->bit_rate = m->bitrate;
 			m->ctx->time_base = (AVRational){1,m->framerate};
-			m->ctx->gop_size = 15;
+			//m->ctx->framerate = (AVRational){1,m->framerate};
+			m->ctx->gop_size = 24;
 			m->ctx->pix_fmt = m->pixfmt;
 			m->ctx->flags |= CODEC_FLAG_GLOBAL_HEADER;
 			m->ctx->debug = 0x00;
@@ -76,6 +77,7 @@ type H264Encoder struct {
 	W, H      int
 	pts       int64
 	FrameRate int
+	frameNum  int
 	Preset    [2]string
 	Profile   string
 }
@@ -207,7 +209,9 @@ func (m *H264Encoder) Encode(img *image.YCbCr) (out *H264Out, err error) {
 
 		f.pts = (C.int64_t)(m.pts)
 		C.set_ppts(&m.m, (C.int64_t)(m.pts))
-		m.pts++
+
+		//m.pts++
+		m.pts += 1
 	}
 
 	out = &H264Out{}

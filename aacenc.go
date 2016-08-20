@@ -58,6 +58,7 @@ import (
 						m->ctx->profile = m->profile;
 						m->ctx->flags |= CODEC_FLAG_GLOBAL_HEADER;
 						m->ctx->debug = 0x00;
+						//m->ctx->time_base = (AVRational){1,8000};
 
 				  		m->ctx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
 
@@ -88,7 +89,7 @@ import (
 						pkt.data = m->buf;
 						pkt.size = sizeof(m->buf);
 						avcodec_encode_audio2(m->ctx, &pkt, m->f, &m->got);
-						av_log(m->ctx, AV_LOG_DEBUG, "got %d size %d\n", m->got, pkt.size);
+						av_log(m->ctx, AV_LOG_DEBUG, "got %d size %d, pkt_dts:%ld, frame_dts:%ld\n", m->got, pkt.size,pkt.dts,m->f->pts);
 
 						m->size = pkt.size;
 						m->pts = pkt.pts;
@@ -129,6 +130,21 @@ const (
 	AV_CH_LAYOUT_CENTER = 4
 	AV_CH_LAYOUT_STEREO = 3
 	AV_CH_LAYOUT_MONO   = 4
+)
+
+const (
+	AV_SAMPLE_FMT_NONE int32 = -1 << iota
+	AV_SAMPLE_FMT_U8         ///< unsigned 8 bits
+	AV_SAMPLE_FMT_S16        ///< signed 16 bits
+	AV_SAMPLE_FMT_S32        ///< signed 32 bits
+	AV_SAMPLE_FMT_FLT        ///< float
+	AV_SAMPLE_FMT_DBL        ///< double
+
+	AV_SAMPLE_FMT_U8P  ///< unsigned 8 bits, planar
+	AV_SAMPLE_FMT_S16P ///< signed 16 bits, planar
+	AV_SAMPLE_FMT_S32P ///< signed 32 bits, planar
+	AV_SAMPLE_FMT_FLTP ///< float, planar
+	AV_SAMPLE_FMT_DBLP ///< double, planar
 )
 
 type AChannelSamples []byte
@@ -221,6 +237,10 @@ func (m *AACEncoder) GetFrameSize() C.int {
 
 func (m *AACEncoder) GetBufferSize() C.int {
 	return C.get_buffer_size(&m.m)
+}
+
+func (m *AACEncoder) GetNbSamples() C.int {
+	return m.m.f.nb_samples
 }
 
 func (m *AACEncoder) Encode(sample []byte) (ret []byte, err error) {
