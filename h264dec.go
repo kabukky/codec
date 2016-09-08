@@ -22,7 +22,7 @@ import (
 			h->f = av_frame_alloc();
 			h->ctx->extradata = data;
 			h->ctx->extradata_size = len;
-			h->ctx->debug = 0x00;
+
 			return avcodec_open2(h->ctx, h->c, 0);
 		}
 
@@ -31,7 +31,16 @@ import (
 			av_init_packet(&pkt);
 			pkt.data = data;
 			pkt.size = len;
-			return avcodec_decode_video2(h->ctx, h->f, &h->got, &pkt);
+
+			int r = avcodec_decode_video2(h->ctx, h->f, &h->got, &pkt);
+
+			static char error_buffer[255];
+			if (r < 0) {
+				av_strerror(r, error_buffer, sizeof(error_buffer));
+				av_log(h->ctx, AV_LOG_DEBUG, "Video decode error: %s\n", error_buffer);
+			}
+
+			return r;
 		}
 	*/
 	"C"
