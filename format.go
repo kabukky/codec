@@ -32,10 +32,13 @@ import (
 			AVStream *video_st;
 			AVStream *audio_st;
 			AVFormatContext *ctx;
+			AVBitStreamFilterContext *bsfc;
 			AVOutputFormat *fmt;
 			char *filename;
 			AVPacket pkt;
 			AVCodec *c;
+			AVCodec *cv;
+			int useToAnnexbFilter;
 		} avformat_t;
 
 		static int avformat_new(avformat_t *m, char *filename) {
@@ -58,6 +61,16 @@ import (
 				return -1;
 			}
 			av_init_packet(&m->pkt);
+
+			// create bit filter context
+			if (m->useToAnnexbFilter) {
+				m->bsfc = av_bitstream_filter_init("h264_mp4toannexb");
+				if(m->bsfc == NULL) {
+					av_log(m->ctx, AV_LOG_DEBUG, "Create bitstream filter h264_mp4toannexb failed\n");
+
+					return -1;
+				}
+			}
 
 			return 0;
 		}
@@ -110,6 +123,17 @@ import (
 
 		}
 
+		static void set_video_extradata(avformat_t *m, uint8_t *extra, int size) {
+			if (av_reallocp(&m->video_st->codec->extradata, size) != 0) {
+				av_log(m->ctx, AV_LOG_DEBUG, "allocate memory for extradata failed\n");
+
+				return;
+			}
+
+			memcpy(m->video_st->codec->extradata, extra, size);
+			m->video_st->codec->extradata_size = size;
+		}
+
 		static int open_codec(avformat_t *m) {
 			int r = avcodec_open2(m->audio_st->codec, NULL, NULL);
 			if (r < 0) {
@@ -153,25 +177,45 @@ import (
 		}
 
 		static int write_pkt2(avformat_t *m, uint8_t *data, int len, int64_t tm, int isKeyFrame) {
-			AVPacket pkt;
-			av_init_packet(&pkt);
-			pkt.data = data;
-			pkt.size = len;
-			pkt.stream_index = m->video_st->index;
-			pkt.pts = tm;
-			pkt.dts = tm;
-			printf("pts: %ld, tm: %ld\n", pkt.pts, tm);
-			av_packet_rescale_ts(&pkt, m->video_st->codec->time_base, m->video_st->time_base);
-			av_log(m->ctx, AV_LOG_DEBUG, "pts: %ld, dts: %ld, len: %d\n", pkt.pts, pkt.dts,len);
+			m->pkt.stream_index = m->video_st->index;
+			m->pkt.pts = tm;
+			m->pkt.dts = tm;
 			if(isKeyFrame) {
-				pkt.flags |= AV_PKT_FLAG_KEY;
+				m->pkt.flags |= AV_PKT_FLAG_KEY;
 			}
-			//int ret = av_interleaved_write_frame(m->ctx, &pkt);
-			int ret = av_write_frame(m->ctx, &pkt);
+
+			// set pkt data
+			if (m->useToAnnexbFilter) {
+				int ret = av_bitstream_filter_filter(m->bsfc, m->video_st->codec, NULL,
+													&m->pkt.data, &m->pkt.size,
+													data, len,
+													m->pkt.flags & AV_PKT_FLAG_KEY);
+
+				if (ret > 0) {
+					// non-zero positive, you have new memory allocated,
+					// keep it referenced in the AVBuffer
+					m->pkt.buf = av_buffer_create(m->pkt.data, m->pkt.size, av_buffer_default_free, NULL, 0);
+				} else if (ret < 0) {
+					// handle failure here
+					static char error_buffer[255];
+					av_strerror(ret, error_buffer, sizeof(error_buffer));
+					av_log(m->ctx, AV_LOG_DEBUG, "write_pkt2: apply filter failed, err: %s\n", error_buffer);
+				}
+			} else {
+				m->pkt.data = data;
+				m->pkt.size = len;
+			}
+
+			av_log(m->ctx, AV_LOG_DEBUG, "pts: %ld, tm: %ld\n", m->pkt.pts, tm);
+			av_packet_rescale_ts(&m->pkt, m->video_st->codec->time_base, m->video_st->time_base);
+			av_log(m->ctx, AV_LOG_DEBUG, "pts: %ld, dts: %ld, len: %d\n", m->pkt.pts, m->pkt.dts,len);
+
+			//int ret = av_interleaved_write_frame(m->ctx, &m->pkt);
+			int ret = av_write_frame(m->ctx, &m->pkt);
 
 			static char error_buffer[255];
 			av_strerror(ret, error_buffer, sizeof(error_buffer));
-			av_log(m->ctx, AV_LOG_DEBUG, "pts: %ld, dts: %ld, error: %s\n", pkt.pts, tm, error_buffer);
+			av_log(m->ctx, AV_LOG_DEBUG, "pts: %ld, dts: %ld, error: %s\n", m->pkt.pts, tm, error_buffer);
 
 			return ret;
 		}
@@ -262,6 +306,24 @@ func CreateAVFormat(fname string) (*AVFormat, error) {
 	return f, nil
 }
 
+func CreateAVFormat2(fname string, useToAnnexbFilter bool) (*AVFormat, error) {
+	f := &AVFormat{}
+
+	f.fname = fname
+	if useToAnnexbFilter {
+		f.m.useToAnnexbFilter = 1
+	} else {
+		f.m.useToAnnexbFilter = 0
+	}
+
+	r := C.avformat_new(&f.m, C.CString(fname))
+	if int(r) < 0 {
+		err := errors.New("Create format failed")
+		return nil, err
+	}
+	return f, nil
+}
+
 func (f *AVFormat) AddVideoStream(enc *H264Encoder) {
 	C.add_video_stream(&f.m, &enc.m)
 	f.Header = fromCPtr(unsafe.Pointer(f.m.video_st.codec.extradata), (int)(f.m.video_st.codec.extradata_size))
@@ -275,9 +337,10 @@ func (f *AVFormat) AddVideoStream2(info *AVStreamInfo, extra []byte) (err error)
 	f.m.video_st.codec.codec_type = C.AVMEDIA_TYPE_VIDEO
 	f.m.video_st.codec.codec_id = C.AV_CODEC_ID_H264
 
+	// h264_mp4toannexb filter use av_free method for extradata
+	// we need allocate memory by libav
 	if extra != nil {
-		f.m.video_st.codec.extradata = (*C.uint8_t)(unsafe.Pointer(&extra[0]))
-		f.m.video_st.codec.extradata_size = (C.int)(len(extra))
+		C.set_video_extradata(&f.m, (*C.uint8_t)(unsafe.Pointer(&extra[0])), (C.int)(len(extra)))
 	}
 
 	f.m.video_st.codec.width = C.int(info.W)
