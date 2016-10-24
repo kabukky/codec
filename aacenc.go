@@ -57,14 +57,18 @@ import (
 						m->ctx->channel_layout = m->channel_layout;
 						m->ctx->profile = m->profile;
 						m->ctx->flags |= CODEC_FLAG_GLOBAL_HEADER;
-						m->ctx->debug = 0x00;
-						//m->ctx->time_base = (AVRational){1,8000};
-
 				  		m->ctx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
 
 						int r = avcodec_open2(m->ctx, m->c, NULL);
+						if(r != 0) {
+							static char error_buffer[255];
+							av_strerror(r, error_buffer, sizeof(error_buffer));
+							av_log(m->ctx, AV_LOG_DEBUG, "error %s\n", error_buffer);
+						}
+
 						av_log(m->ctx, AV_LOG_DEBUG, "extra %d\n", m->ctx->extradata_size);
 						av_log(m->ctx, AV_LOG_DEBUG, "frame size %d\n", m->ctx->frame_size);
+						av_log(m->ctx, AV_LOG_DEBUG, "Audio encoder:, channels: %d, ch_layout: %ld, sample_fmt: %d, planar: %d\n", m->ctx->channels,m->ctx->channel_layout,m->ctx->sample_fmt,av_sample_fmt_is_planar(m->ctx->sample_fmt));
 
 						m->f = av_frame_alloc();
 						m->f->nb_samples = m->ctx->frame_size;
@@ -133,18 +137,18 @@ const (
 )
 
 const (
-	AV_SAMPLE_FMT_NONE int32 = -1 << iota
-	AV_SAMPLE_FMT_U8         ///< unsigned 8 bits
-	AV_SAMPLE_FMT_S16        ///< signed 16 bits
-	AV_SAMPLE_FMT_S32        ///< signed 32 bits
-	AV_SAMPLE_FMT_FLT        ///< float
-	AV_SAMPLE_FMT_DBL        ///< double
+	AV_SAMPLE_FMT_NONE int32 = -1
+	AV_SAMPLE_FMT_U8   int32 = 0 ///< unsigned 8 bits
+	AV_SAMPLE_FMT_S16  int32 = 1 ///< signed 16 bits
+	AV_SAMPLE_FMT_S32  int32 = 2 ///< signed 32 bits
+	AV_SAMPLE_FMT_FLT  int32 = 3 ///< float
+	AV_SAMPLE_FMT_DBL  int32 = 4 ///< double
 
-	AV_SAMPLE_FMT_U8P  ///< unsigned 8 bits, planar
-	AV_SAMPLE_FMT_S16P ///< signed 16 bits, planar
-	AV_SAMPLE_FMT_S32P ///< signed 32 bits, planar
-	AV_SAMPLE_FMT_FLTP ///< float, planar
-	AV_SAMPLE_FMT_DBLP ///< double, planar
+	AV_SAMPLE_FMT_U8P  int32 = 5 ///< unsigned 8 bits, planar
+	AV_SAMPLE_FMT_S16P int32 = 6 ///< signed 16 bits, planar
+	AV_SAMPLE_FMT_S32P int32 = 7 ///< signed 32 bits, planar
+	AV_SAMPLE_FMT_FLTP int32 = 8 ///< float, planar
+	AV_SAMPLE_FMT_DBLP int32 = 9 ///< double, planar
 )
 
 type AChannelSamples []byte
@@ -163,8 +167,8 @@ type AACEncoder struct {
 	ChannelLayout int
 	Profile       int
 	Header        []byte
-	bufL          [4096]byte
-	bufR          [4096]byte
+	bufL          [8192]byte
+	bufR          [8192]byte
 	bufLen        int
 	sampleSize    int
 	frameSize     int
