@@ -79,7 +79,7 @@ import (
 					}
 
 					static void bind_buf(aacenc_t *m, uint8_t* samples) {
-						int ret = avcodec_fill_audio_frame(m->f, 2, AV_SAMPLE_FMT_S16,(const uint8_t*)samples, 4096, 0);
+						int ret = avcodec_fill_audio_frame(m->f, 2, AV_SAMPLE_FMT_S16,(const uint8_t*)samples, 8192, 0);
 
 						if (ret < 0) {
 							av_log(m->ctx, AV_LOG_DEBUG, "Bind buffer failed ...\n");
@@ -268,14 +268,11 @@ func (m *AACEncoder) Encode(sample []byte) (ret []byte, err error) {
 	return
 }
 
-func (m *AACEncoder) samplesToBuf(channels []AChannelSamples, samplesCount, samplesOffset int) int {
+func (m *AACEncoder) samplesToBufMulti(channels []AChannelSamples, samplesCount, samplesOffset int) int {
 	mixedSampleSize := m.Channels * m.sampleSize
 
 	// copy samples count
 	sz := samplesCount - samplesOffset
-	if m.frameSize-m.bufLen < sz {
-		sz = m.frameSize - m.bufLen
-	}
 
 	// bufLen -> buffer size in samples
 	for i := 0; i < sz; i++ {
@@ -292,30 +289,53 @@ func (m *AACEncoder) samplesToBuf(channels []AChannelSamples, samplesCount, samp
 	return sz
 }
 
-func (m *AACEncoder) Encode2(channels []AChannelSamples) (ret *AACOut, err error) {
-	if len(channels) != m.Channels {
-		err = errors.New("Channels number not equal")
-		return
+func (m *AACEncoder) samplesToBufMono(samples AChannelSamples, samplesCount, samplesOffset int) int {
+	sz := samplesCount - samplesOffset
+
+	copy(m.bufR[m.bufLen*m.sampleSize:], samples[samplesOffset*m.sampleSize:sz*m.sampleSize])
+	m.bufLen += sz
+
+	return sz
+}
+
+func (m *AACEncoder) samplesToBuf(channels []AChannelSamples, samplesCount, samplesOffset int) int {
+	if len(channels) > 1 {
+		return m.samplesToBufMulti(channels, samplesCount, samplesOffset)
 	}
 
-	// channel buf size
-	channelBufSz := 0
-	for _, v := range channels {
-		if channelBufSz == 0 {
-			channelBufSz = len(v)
-			continue
-		}
+	return m.samplesToBufMono(channels[0], samplesCount, samplesOffset)
+}
 
-		if channelBufSz != len(v) {
-			err = errors.New("channels size not equal")
+func (m *AACEncoder) HasFrame() bool {
+	return m.bufLen >= m.frameSize
+}
+
+func (m *AACEncoder) Encode2(channels []AChannelSamples) (ret *AACOut, err error) {
+	if channels != nil {
+		if len(channels) != m.Channels {
+			err = errors.New("Channels number not equal")
 			return
 		}
+
+		// channel buf size
+		channelBufSz := 0
+		for _, v := range channels {
+			if channelBufSz == 0 {
+				channelBufSz = len(v)
+				continue
+			}
+
+			if channelBufSz != len(v) {
+				err = errors.New("channels size not equal")
+				return
+			}
+		}
+
+		samplesCount := channelBufSz / m.sampleSize
+
+		// copy samples to codec buf
+		m.samplesToBuf(channels, samplesCount, 0)
 	}
-
-	samplesCount := channelBufSz / m.sampleSize
-
-	// copy samples to codec buf
-	n := m.samplesToBuf(channels, samplesCount, 0)
 
 	// until codec buf not full, return no_data
 	if m.bufLen < m.frameSize {
@@ -326,22 +346,15 @@ func (m *AACEncoder) Encode2(channels []AChannelSamples) (ret *AACOut, err error
 	// encode samples
 	C.aacenc_encode(&m.m)
 
-	// reset bufLen
-	m.bufLen = 0
-
-	// after encode, copy remind samples
-	if n < samplesCount {
-		//log.Println("Copy remaining data:", samplesCount-n)
-		m.samplesToBuf(channels, samplesCount, n)
-	}
+	// shift buff
+	copy(m.bufR[0:], m.bufR[m.frameSize*m.Channels*m.sampleSize:])
+	m.bufLen -= m.frameSize
 
 	// check got flag
 	if int(m.m.got) == 0 {
 		err = errors.New("no data")
 		return
 	}
-
-	//log.Println("Encoded data size:", m.m.size)
 
 	// extract and return encoded data
 	ret = &AACOut{

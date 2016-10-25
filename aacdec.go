@@ -15,7 +15,13 @@ import (
 			AVCodecContext *ctx;
 			AVFrame *f;
 			int got;
+			uint8_t *out_buffer;
+			int out_sz;
 		} aacdec_t ;
+
+		static int get_frame_buffer(AVCodecContext *ctx, AVFrame *frame, int flags) {
+			av_log(NULL, AV_LOG_DEBUG, "Get output buffer for audio samples, nb_samples: %d\n", frame->nb_samples);
+		}
 
 		static int aacdec_new(aacdec_t *m, int codec_id, uint8_t *buf, int len) {
 			m->c = avcodec_find_decoder(codec_id);
@@ -38,11 +44,13 @@ import (
 			return r;
 		}
 
-		static int aacdec_decode(aacdec_t *m, uint8_t *data, int len) {
+		static int aacdec_decode(aacdec_t *m, uint8_t *in_data, int in_sz) {
+			int i,linesize;
+
 			AVPacket pkt;
 			av_init_packet(&pkt);
-			pkt.data = data;
-			pkt.size = len;
+			pkt.data = in_data;
+			pkt.size = in_sz;
 
 			int r = avcodec_decode_audio4(m->ctx, m->f, &m->got, &pkt);
 			if(r < 0) {
@@ -50,7 +58,43 @@ import (
 				av_strerror(r, error_buffer, sizeof(error_buffer));
 				av_log(m->ctx, AV_LOG_DEBUG, "error %s\n", error_buffer);
 			}
-			if(r > 0 && len > r) {
+			if(r > 0 && in_sz > r) {
+				av_log(m->ctx, AV_LOG_DEBUG, "return positive result %d\n", r);
+			}
+
+			av_log(m->ctx, AV_LOG_DEBUG, "aac_decode, channels layout: %lu, channels: %d, nb_samples: %d, line size: %d\n", m->f->channel_layout, m->ctx->channels, m->f->nb_samples, m->f->linesize[0]);
+
+			return r;
+		}
+
+		static int aacdec_decode2(aacdec_t *m, uint8_t *out_data, int out_sz, uint8_t *in_data, int in_sz) {
+			int i,linesize;
+
+			av_log(m->ctx, AV_LOG_DEBUG, "audio decode2\n");
+			//return aacdec_decode(m, in_data, in_sz);
+
+			AVPacket pkt;
+			av_init_packet(&pkt);
+			pkt.data = in_data;
+			pkt.size = in_sz;
+
+			linesize = out_sz / m->ctx->channels;
+			for (i=0; i<m->ctx->channels; ++i) {
+				m->f->data[i] = &out_data[i*linesize];
+			}
+			m->f->extended_data = &m->f->data[0];
+			m->f->linesize[0] = out_sz;
+
+			// set custom allocate func
+			m->ctx->get_buffer2 = get_frame_buffer;
+
+			int r = avcodec_decode_audio4(m->ctx, m->f, &m->got, &pkt);
+			if(r < 0) {
+				static char error_buffer[255];
+				av_strerror(r, error_buffer, sizeof(error_buffer));
+				av_log(m->ctx, AV_LOG_DEBUG, "error %s\n", error_buffer);
+			}
+			if(r > 0 && in_sz > r) {
 				av_log(m->ctx, AV_LOG_DEBUG, "return positive result %d\n", r);
 			}
 
@@ -69,6 +113,7 @@ import (
 	"errors"
 	"unsafe"
 )
+import "log"
 
 type AACDecoder struct {
 	m C.aacdec_t
@@ -133,9 +178,47 @@ func (m *AACDecoder) Decode(data []byte) (sample []byte, err error) {
 
 	size := int(int(m.m.f.nb_samples) * sampleSize)
 	sample = make([]byte, size*int(m.m.ctx.channels))
-	for i := 0; i < channels; i++ {
+	for i := 0; i < int(m.m.ctx.channels); i++ {
 		C.copy_frame_data(&m.m, (*C.uint8_t)(unsafe.Pointer(&sample[i*size])), C.int(size), C.int(i))
 	}
+
+	return
+}
+
+func (m *AACDecoder) Decode2(data []byte) (sample []byte, err error) {
+	// sampleSize := 2
+	// if m.m.ctx.sample_fmt == C.AV_SAMPLE_FMT_FLT || m.m.ctx.sample_fmt == AV_SAMPLE_FMT_FLTP {
+	// 	sampleSize = 4
+	// }
+	// size := int(m.m.f.nb_samples) * sampleSize
+	sample = make([]byte, 8192*int(m.m.ctx.channels))
+	log.Println("channels:", int(m.m.ctx.channels), "sample size:", len(sample))
+	r := C.aacdec_decode2(
+		&m.m,
+		(*C.uint8_t)(unsafe.Pointer(&sample[0])),
+		(C.int)(len(sample)),
+		(*C.uint8_t)(unsafe.Pointer(&data[0])),
+		(C.int)(len(data)),
+	)
+	if int(r) < 0 {
+		err = errors.New("decode failed")
+		return
+	}
+	if int(m.m.got) == 0 {
+		err = errors.New("no data")
+		return
+	}
+
+	// sampleSize := 2
+	// if m.m.ctx.sample_fmt == C.AV_SAMPLE_FMT_FLT || m.m.ctx.sample_fmt == AV_SAMPLE_FMT_FLTP {
+	// 	sampleSize = 4
+	// }
+
+	// size := int(int(m.m.f.nb_samples) * sampleSize)
+	// sample = make([]byte, size*int(m.m.ctx.channels))
+	// for i := 0; i < channels; i++ {
+	// 	C.copy_frame_data(&m.m, (*C.uint8_t)(unsafe.Pointer(&sample[i*size])), C.int(size), C.int(i))
+	// }
 
 	return
 }

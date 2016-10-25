@@ -88,10 +88,7 @@ import (
 	//	"strings"
 	//"log"
 )
-import (
-	"log"
-	"unsafe"
-)
+import "unsafe"
 
 type AVResampler struct {
 	InSampleRate     int
@@ -146,10 +143,8 @@ func (r *AVResampler) Convert(samples []byte) ([]byte, error) {
 	// AV_CH_LAYOUT_MONO = 1
 	convertedSamples := make([]byte, outLineSize*1)
 
-	converted_samples := C.convert_resampler(&r.m, (*C.uint8_t)(unsafe.Pointer(&convertedSamples[0])), C.int(outLineSize), C.int(outSamples),
+	C.convert_resampler(&r.m, (*C.uint8_t)(unsafe.Pointer(&convertedSamples[0])), C.int(outLineSize), C.int(outSamples),
 		(*C.uint8_t)(unsafe.Pointer(&samples[0])), C.int(inLineSize), C.int(inSamples))
-
-	log.Printf("Convert samples, %d", int(converted_samples))
 
 	return convertedSamples, nil
 }
