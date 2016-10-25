@@ -75,6 +75,21 @@ import (
 			return 0;
 		}
 
+		static int avformat_switch_outfile(avformat_t *m, char *filename) {
+			// close output file
+			av_write_trailer(m->ctx);
+			avio_close(m->ctx->pb);
+
+			// Open output file
+			if (avio_open(&m->ctx->pb, filename, AVIO_FLAG_WRITE) < 0) {
+				av_log(m->ctx, AV_LOG_DEBUG, "Could not open '%s'\n", filename);
+
+				return -1;
+			}
+
+			return 0;
+		}
+
 		static int add_video_stream(avformat_t *m, h264enc_t *enc) {
 			m->video_st = avformat_new_stream(m->ctx, enc->c);
 			//printf("%s\n",m->video_st->codec->codec->long_name);
@@ -220,6 +235,60 @@ import (
 			return ret;
 		}
 
+		static int write_pkt3(avformat_t *m, AVPacket *pkt, uint8_t *data) {
+			int i =0;
+
+			av_log(m->ctx, AV_LOG_DEBUG, "m: %p, pkt: %p, data: %p\n",m, pkt, data);
+
+			pkt->data = data;
+
+			m->pkt.stream_index = m->video_st->index;
+			m->pkt.pts = pkt->pts;
+			m->pkt.dts = pkt->dts;
+			m->pkt.flags = pkt->flags;
+
+			// set pkt data
+			if (m->useToAnnexbFilter) {
+				for(i=0;i<m->video_st->codec->extradata_size;++i) {
+					av_log(m->ctx, AV_LOG_DEBUG, "0x%02x ", m->video_st->codec->extradata[i]);
+				}
+				av_log(m->ctx, AV_LOG_DEBUG, "\nflags: %02x, isKey: %d\n",pkt->flags,pkt->flags & AV_PKT_FLAG_KEY);
+
+				int ret = av_bitstream_filter_filter(m->bsfc, m->video_st->codec, NULL,
+													&m->pkt.data, &m->pkt.size,
+													pkt->data, pkt->size,
+													pkt->flags & AV_PKT_FLAG_KEY);
+
+				if (ret > 0) {
+					// non-zero positive, you have new memory allocated,
+					// keep it referenced in the AVBuffer
+					m->pkt.buf = av_buffer_create(m->pkt.data, m->pkt.size, av_buffer_default_free, NULL, 0);
+				} else if (ret < 0) {
+					// handle failure here
+					static char error_buffer[255];
+					av_strerror(ret, error_buffer, sizeof(error_buffer));
+					av_log(m->ctx, AV_LOG_DEBUG, "write_pkt3: apply filter failed, err: %s\n", error_buffer);
+				}
+			} else {
+				m->pkt.data = pkt->data;
+				m->pkt.size = pkt->size;
+			}
+
+			av_log(m->ctx, AV_LOG_DEBUG, "pts: %ld, tm: %ld, codec time base: %d/%d, stream time base: %d/%d\n", m->pkt.pts, pkt->pts,
+				m->video_st->codec->time_base.num, m->video_st->codec->time_base.den, m->video_st->time_base.num, m->video_st->time_base.den);
+			av_packet_rescale_ts(&m->pkt, m->video_st->codec->time_base, m->video_st->time_base);
+			av_log(m->ctx, AV_LOG_DEBUG, "pts: %ld, dts: %ld, len: %d\n", m->pkt.pts, m->pkt.dts, m->pkt.size);
+
+			//int ret = av_interleaved_write_frame(m->ctx, &m->pkt);
+			int ret = av_write_frame(m->ctx, &m->pkt);
+
+			static char error_buffer[255];
+			av_strerror(ret, error_buffer, sizeof(error_buffer));
+			av_log(m->ctx, AV_LOG_DEBUG, "pts: %ld, dts: %ld, error: %s\n", m->pkt.pts, pkt->pts, error_buffer);
+
+			return ret;
+		}
+
 		static int write_audio_pkt2(avformat_t *m, uint8_t *data, int len, int64_t tm) {
 			AVPacket pkt;
 			av_init_packet(&pkt);
@@ -269,14 +338,16 @@ type AVRational struct {
 
 type AVStreamInfo struct {
 	// video
-	W        int
-	H        int
-	Pixfmt   image.YCbCrSubsampleRatio
-	Bitrate  int
-	TimeBase AVRational
-	GopSize  int
+	W              int
+	H              int
+	Pixfmt         image.YCbCrSubsampleRatio
+	Bitrate        int
+	TimeBase       AVRational
+	GopSize        int
+	UseMp4ToAnnexb bool
 
 	// audio
+	DisableAudio  bool
 	SampleRate    int
 	ABitRate      int
 	Channels      int
@@ -290,6 +361,7 @@ type AVFormat struct {
 	videoStream AVStreamInfo
 	fname       string
 	Header      []byte
+	vExtra      []byte
 	frameBuf    bytes.Buffer
 	pts         int64
 }
@@ -324,6 +396,16 @@ func CreateAVFormat2(fname string, useToAnnexbFilter bool) (*AVFormat, error) {
 	return f, nil
 }
 
+func (f *AVFormat) SwitchOutFile(fname string) error {
+	r := C.avformat_switch_outfile(&f.m, C.CString(fname))
+	if int(r) < 0 {
+		err := errors.New("Create format failed")
+		return err
+	}
+
+	return nil
+}
+
 func (f *AVFormat) AddVideoStream(enc *H264Encoder) {
 	C.add_video_stream(&f.m, &enc.m)
 	f.Header = fromCPtr(unsafe.Pointer(f.m.video_st.codec.extradata), (int)(f.m.video_st.codec.extradata_size))
@@ -341,6 +423,9 @@ func (f *AVFormat) AddVideoStream2(info *AVStreamInfo, extra []byte) (err error)
 	// we need allocate memory by libav
 	if extra != nil {
 		C.set_video_extradata(&f.m, (*C.uint8_t)(unsafe.Pointer(&extra[0])), (C.int)(len(extra)))
+
+		f.vExtra = make([]byte, len(extra))
+		copy(f.vExtra, extra)
 	}
 
 	f.m.video_st.codec.width = C.int(info.W)
@@ -349,7 +434,7 @@ func (f *AVFormat) AddVideoStream2(info *AVStreamInfo, extra []byte) (err error)
 	f.m.video_st.codec.time_base.num = C.int(info.TimeBase.Num)
 	f.m.video_st.codec.time_base.den = C.int(info.TimeBase.Den)
 	f.m.video_st.codec.gop_size = C.int(info.GopSize)
-	// pix_fmt has int32 type, but not C.int32() method
+
 	switch info.Pixfmt {
 	case image.YCbCrSubsampleRatio444:
 		f.m.video_st.codec.pix_fmt = C.PIX_FMT_YUV444P
@@ -435,7 +520,28 @@ func (f *AVFormat) WritePacket(enc *H264Encoder) {
 func (f *AVFormat) WritePacket2(o *H264Out) {
 	defer o.Free()
 
-	C.write_pkt(&f.m, &o.pkt)
+	//C.write_pkt(&f.m, &o.pkt)
+	//o.pkt.data = (*C.uint8_t)(unsafe.Pointer(&o.Data[0]))
+	C.write_pkt3(&f.m, &o.pkt, (*C.uint8_t)(unsafe.Pointer(&o.Data[0])))
+}
+
+func (f *AVFormat) PacketVideoData(nal []byte, pts uint32, isKeyFrame bool) *H264Out {
+	out := NewH264Out()
+
+	out.Key = isKeyFrame
+	out.Data = nal
+	// out.Data = make([]byte, len(nal))
+	// copy(out.Data, nal)
+	//out.pkt.data = (*C.uint8_t)(unsafe.Pointer(&nal[0]))
+	out.pkt.size = C.int(len(nal))
+	out.pkt.pts = C.int64_t(pts)
+	out.pkt.dts = out.pkt.pts
+
+	if isKeyFrame {
+		out.pkt.flags |= C.AV_PKT_FLAG_KEY
+	}
+
+	return out
 }
 
 func (f *AVFormat) WriteVideoData(nal []byte, timeStamp uint32, isKeyFrame bool) (err error) {
@@ -444,6 +550,7 @@ func (f *AVFormat) WriteVideoData(nal []byte, timeStamp uint32, isKeyFrame bool)
 	if isKeyFrame {
 		ikf = 1
 	}
+
 	r := C.write_pkt2(&f.m, (*C.uint8_t)(unsafe.Pointer(&nal[0])), (C.int)(len(nal)), C.int64_t(f.pts), C.int(ikf))
 	f.pts++
 

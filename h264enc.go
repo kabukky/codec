@@ -132,13 +132,23 @@ func NewH264Encoder(
 }
 
 type H264Out struct {
-	pkt  C.AVPacket
-	Data []byte
-	Key  bool
+	pkt    C.AVPacket
+	Data   []byte
+	Key    bool
+	AVFree bool
 }
 
-func (out *H264Out) Free() {
-	C.av_free_packet(&out.pkt)
+func NewH264Out() *H264Out {
+	ho := &H264Out{}
+	C.av_init_packet(&ho.pkt)
+
+	return ho
+}
+
+func (ho *H264Out) Free() {
+	if ho.AVFree {
+		C.av_free_packet(&ho.pkt)
+	}
 }
 
 func (m *H264Encoder) Init() error {
@@ -214,11 +224,10 @@ func (m *H264Encoder) Encode(img *image.YCbCr) (out *H264Out, err error) {
 		m.pts += 1
 	}
 
-	out = &H264Out{}
-
-	C.av_init_packet(&out.pkt)
+	out = NewH264Out()
 	out.pkt.data = nil
 	out.pkt.size = 0
+	out.AVFree = true
 
 	r := C.avcodec_encode_video2(m.m.ctx, &out.pkt, f, &m.m.got)
 	//defer C.av_free_packet(&m.m.pkt)
