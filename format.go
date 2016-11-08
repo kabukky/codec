@@ -240,7 +240,9 @@ import (
 
 			av_log(m->ctx, AV_LOG_DEBUG, "m: %p, pkt: %p, data: %p\n",m, pkt, data);
 
-			pkt->data = data;
+			if (data != NULL) {
+				pkt->data = data;
+			}
 
 			m->pkt.stream_index = m->video_st->index;
 			m->pkt.pts = pkt->pts;
@@ -270,6 +272,8 @@ import (
 					av_log(m->ctx, AV_LOG_DEBUG, "write_pkt3: apply filter failed, err: %s\n", error_buffer);
 				}
 			} else {
+				av_log(m->ctx, AV_LOG_DEBUG, "write_pkt3, pkt->buffer: %p\n", pkt->buf);
+
 				m->pkt.data = pkt->data;
 				m->pkt.size = pkt->size;
 			}
@@ -279,8 +283,8 @@ import (
 			av_packet_rescale_ts(&m->pkt, m->video_st->codec->time_base, m->video_st->time_base);
 			av_log(m->ctx, AV_LOG_DEBUG, "pts: %ld, dts: %ld, len: %d\n", m->pkt.pts, m->pkt.dts, m->pkt.size);
 
-			//int ret = av_interleaved_write_frame(m->ctx, &m->pkt);
-			int ret = av_write_frame(m->ctx, &m->pkt);
+			int ret = av_interleaved_write_frame(m->ctx, &m->pkt);
+			//int ret = av_write_frame(m->ctx, &m->pkt);
 
 			static char error_buffer[255];
 			av_strerror(ret, error_buffer, sizeof(error_buffer));
@@ -522,7 +526,11 @@ func (f *AVFormat) WritePacket2(o *H264Out) {
 
 	//C.write_pkt(&f.m, &o.pkt)
 	//o.pkt.data = (*C.uint8_t)(unsafe.Pointer(&o.Data[0]))
-	C.write_pkt3(&f.m, &o.pkt, (*C.uint8_t)(unsafe.Pointer(&o.Data[0])))
+	if o.Data != nil {
+		C.write_pkt3(&f.m, &o.pkt, (*C.uint8_t)(unsafe.Pointer(&o.Data[0])))
+	} else {
+		C.write_pkt3(&f.m, &o.pkt, (*C.uint8_t)(unsafe.Pointer(nil)))
+	}
 }
 
 func (f *AVFormat) PacketVideoData(nal []byte, pts uint32, isKeyFrame bool) *H264Out {

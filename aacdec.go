@@ -31,6 +31,9 @@ import (
 				m->ctx->extradata = buf;
 				m->ctx->extradata_size = len;
 			}
+			m->ctx->channels = 1;
+			m->ctx->channel_layout = av_get_default_channel_layout(1);
+			m->ctx->sample_fmt = m->c->sample_fmts[0];
 
 			int r = avcodec_open2(m->ctx, m->c, 0);
 			if(r != 0) {
