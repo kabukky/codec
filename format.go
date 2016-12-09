@@ -319,6 +319,7 @@ import (
 
 			//close_stream(m->ctx, m->video_st);
 			avio_close(m->ctx->pb);
+			av_free(m->ctx);
 		}
 	*/
 	"C"
@@ -526,7 +527,7 @@ func (f *AVFormat) WritePacket2(o *H264Out) {
 
 	//C.write_pkt(&f.m, &o.pkt)
 	//o.pkt.data = (*C.uint8_t)(unsafe.Pointer(&o.Data[0]))
-	if o.Data != nil {
+	if o.Data != nil && len(o.Data) > 0 {
 		C.write_pkt3(&f.m, &o.pkt, (*C.uint8_t)(unsafe.Pointer(&o.Data[0])))
 	} else {
 		C.write_pkt3(&f.m, &o.pkt, (*C.uint8_t)(unsafe.Pointer(nil)))

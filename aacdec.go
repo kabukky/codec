@@ -17,6 +17,7 @@ import (
 			int got;
 			uint8_t *out_buffer;
 			int out_sz;
+			int sample_size;
 		} aacdec_t ;
 
 		static int get_frame_buffer(AVCodecContext *ctx, AVFrame *frame, int flags) {
@@ -42,9 +43,20 @@ import (
 				av_log(m->ctx, AV_LOG_DEBUG, "error %s\n", error_buffer);
 			}
 
+			m->sample_size = av_get_bytes_per_sample(m->ctx->sample_fmt);
+
 			av_log(m->ctx, AV_LOG_DEBUG, "Audio decoder:, channels: %d, ch_layout: %ld, sample_fmt: %d, planar: %d\n", m->ctx->channels,m->ctx->channel_layout,m->ctx->sample_fmt,av_sample_fmt_is_planar(m->ctx->sample_fmt));
 
 			return r;
+		}
+
+		static void aacdec_release(aacdec_t *m) {
+			// release context
+			avcodec_close(m->ctx);
+			av_free(m->ctx);
+
+			// release frame
+			av_frame_free(&m->f);
 		}
 
 		static int aacdec_decode(aacdec_t *m, uint8_t *in_data, int in_sz) {
@@ -159,6 +171,10 @@ func NewAACDecoder(codec string, header []byte) (m *AACDecoder, err error) {
 	return
 }
 
+func (m *AACDecoder) Release() {
+	C.aacdec_release(&m.m)
+}
+
 func (m *AACDecoder) Decode(data []byte) (sample []byte, err error) {
 	r := C.aacdec_decode(
 		&m.m,
@@ -174,12 +190,7 @@ func (m *AACDecoder) Decode(data []byte) (sample []byte, err error) {
 		return
 	}
 
-	sampleSize := 2
-	if m.m.ctx.sample_fmt == C.AV_SAMPLE_FMT_FLT || m.m.ctx.sample_fmt == AV_SAMPLE_FMT_FLTP {
-		sampleSize = 4
-	}
-
-	size := int(int(m.m.f.nb_samples) * sampleSize)
+	size := int(m.m.f.nb_samples) * int(m.m.sample_size)
 	sample = make([]byte, size*int(m.m.ctx.channels))
 	for i := 0; i < int(m.m.ctx.channels); i++ {
 		C.copy_frame_data(&m.m, (*C.uint8_t)(unsafe.Pointer(&sample[i*size])), C.int(size), C.int(i))

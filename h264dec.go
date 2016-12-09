@@ -26,6 +26,15 @@ import (
 			return avcodec_open2(h->ctx, h->c, 0);
 		}
 
+		static int h264dec_release(h264dec_t *m) {
+			// release context
+			avcodec_close(m->ctx);
+			av_free(m->ctx);
+
+			// release frame
+			av_frame_free(&m->f);
+		}
+
 		static int h264dec_decode(h264dec_t *h, uint8_t *data, int len) {
 			AVPacket pkt;
 			av_init_packet(&pkt);
@@ -67,6 +76,10 @@ func NewH264Decoder(header []byte) (m *H264Decoder, err error) {
 		err = errors.New("open codec failed")
 	}
 	return
+}
+
+func (m *H264Decoder) Release() {
+	C.h264dec_release(&m.m)
 }
 
 func (m *H264Decoder) Decode(nal []byte) (f *image.YCbCr, err error) {

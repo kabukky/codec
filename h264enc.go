@@ -62,6 +62,16 @@ import (
 			m->f->pts = ppts;
 		}
 
+		static void h264enc_release(h264enc_t *m) {
+			//release context
+			avcodec_close(m->ctx);
+			av_free(m->ctx);
+
+			//release frame
+			//av_freep(&m->f->data[0]);
+			av_frame_free(&m->f);
+		}
+
 	*/
 	"C"
 	"errors"
@@ -192,6 +202,10 @@ func (m *H264Encoder) Init() error {
 	//m.Header = fromCPtr(unsafe.Pointer(m.m.pps), (int)(m.m.ppslen))
 
 	return nil
+}
+
+func (m *H264Encoder) Release() {
+	C.h264enc_release(&m.m)
 }
 
 func (m *H264Encoder) Encode(img *image.YCbCr) (out *H264Out, err error) {

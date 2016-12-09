@@ -78,6 +78,15 @@ import (
 						return r;
 					}
 
+					static void aacenc_release(aacenc_t *m) {
+						// release context
+						avcodec_close(m->ctx);
+						av_free(m->ctx);
+
+						// release frame
+						av_frame_free(&m->f);
+					}
+
 					static void bind_buf(aacenc_t *m, uint8_t* samples) {
 						int ret = avcodec_fill_audio_frame(m->f, 2, AV_SAMPLE_FMT_S16,(const uint8_t*)samples, 8192, 0);
 
@@ -233,6 +242,10 @@ func (m *AACEncoder) Init() error {
 	}
 
 	return nil
+}
+
+func (m *AACEncoder) Release() {
+	C.aacenc_release(&m.m)
 }
 
 func (m *AACEncoder) GetFrameSize() C.int {
