@@ -116,3 +116,50 @@ func (m *H264Decoder) Decode(nal []byte) (f *image.YCbCr, err error) {
 
 	return
 }
+
+func (m *H264Decoder) Decode2(nal []byte, f *image.YCbCr) (err error) {
+	if m.m.f.width != f.Rect.Max.X || m.m.f.height != f.Rect.Max.Y {
+		err = errors.New("Decode2: invalid image size ")
+		return
+	}
+
+	r := C.h264dec_decode(
+		&m.m,
+		(*C.uint8_t)(unsafe.Pointer(&nal[0])),
+		(C.int)(len(nal)),
+	)
+	if int(r) < 0 {
+		err = errors.New("decode failed")
+		return
+	}
+	if m.m.got == 0 {
+		err = errors.New("no picture")
+		return
+	}
+
+	ys := int(m.m.f.linesize[0])
+	cs := int(m.m.f.linesize[1])
+
+	m.Pts = int64(m.m.f.pts)
+
+	f.YStride = ys
+	f.CStride = cs
+
+	C.memcpy(
+		unsafe.Pointer(&f.Y[0]),
+		unsafe.Pointer(m.m.f.data[0]),
+		(C.size_t)(ys*h),
+	)
+	C.memcpy(
+		unsafe.Pointer(&f.Cb[0]),
+		unsafe.Pointer(m.m.f.data[1]),
+		(C.size_t)(cs*h/2),
+	)
+	C.memcpy(
+		unsafe.Pointer(&f.Cr[0]),
+		unsafe.Pointer(m.m.f.data[2]),
+		(C.size_t)(cs*h/2),
+	)
+
+	return
+}

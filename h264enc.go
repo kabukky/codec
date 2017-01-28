@@ -12,6 +12,7 @@ import (
 		#include <string.h>
 		#include "libavcodec/avcodec.h"
 		#include "libavutil/avutil.h"
+		#include "libavutil/dict.h"
 		#include "libavformat/avformat.h"
 
 
@@ -19,7 +20,7 @@ import (
 			int w, h;
 			int pixfmt;
 			int64_t ppts;
-			char *preset[2];
+			char *preset;
 			char *profile;
 			int bitrate;
 			int framerate;
@@ -54,7 +55,11 @@ import (
 			//av_frame_make_writable(picture);
 			m->f = picture;
 
-			return avcodec_open2(m->ctx, NULL, NULL);
+			AVDictionary *codec_options = NULL;
+			av_dict_set( &codec_options, "vprofile", "main", 0 );
+			av_dict_set( &codec_options, "preset", "veryfast", 0 );
+
+			return avcodec_open2(m->ctx, NULL, &codec_options);
 		}
 
 		static void set_ppts(h264enc_t *m, int64_t ppts) {
@@ -76,7 +81,6 @@ import (
 	"C"
 	"errors"
 	"image"
-	"strings"
 	"unsafe"
 )
 
@@ -88,7 +92,7 @@ type H264Encoder struct {
 	pts       int64
 	FrameRate int
 	frameNum  int
-	Preset    [2]string
+	Preset    string
 	Profile   string
 }
 
@@ -117,16 +121,15 @@ func NewH264Encoder(
 		m.m.pixfmt = C.PIX_FMT_YUV420P
 	}
 
-	for _, opt := range opts {
-		a := strings.Split(opt, ",")
-		switch {
-		case a[0] == "preset" && len(a) == 3:
-			m.m.preset[0] = C.CString(a[1])
-			m.m.preset[1] = C.CString(a[2])
-		case a[0] == "profile" && len(a) == 2:
-			m.m.profile = C.CString(a[1])
-		}
-	}
+	// for _, opt := range opts {
+	// 	a := strings.Split(opt, ",")
+	// 	switch {
+	// 	case a[0] == "preset" && len(a) == 3:
+	// 		m.m.preset = C.CString(a[1])
+	// 	case a[0] == "profile" && len(a) == 2:
+	// 		m.m.profile = C.CString(a[1])
+	// 	}
+	// }
 
 	avLock.Lock()
 	r := C.h264enc_new(&m.m)
