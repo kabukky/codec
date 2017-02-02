@@ -29,11 +29,16 @@ import (
 			AVCodecContext *ctx;
 			AVFrame *f;
 			AVPacket pkt;
+			int global_header;
+			int release_ctx;
 		} h264enc_t;
 
 		static int h264enc_new(h264enc_t *m) {
 			m->c = avcodec_find_encoder(AV_CODEC_ID_H264);
+
 			m->ctx = avcodec_alloc_context3(m->c);
+			m->release_ctx = 1;
+
 			m->ctx->width = m->w;
 			m->ctx->height = m->h;
 			m->ctx->bit_rate = m->bitrate;
@@ -41,10 +46,12 @@ import (
 			//m->ctx->framerate = (AVRational){1,m->framerate};
 			m->ctx->gop_size = 24;
 			m->ctx->pix_fmt = m->pixfmt;
-			m->ctx->flags |= CODEC_FLAG_GLOBAL_HEADER;
-			m->ctx->debug = 0x00;
 
-		    AVFrame *picture;
+			if(m->global_header) {
+				m->ctx->flags |= CODEC_FLAG_GLOBAL_HEADER;
+			}
+
+			AVFrame *picture;
 		    picture = av_frame_alloc();
 		    picture->format = m->ctx->pix_fmt;
 		    picture->width  = m->ctx->width;
@@ -54,12 +61,25 @@ import (
 		    }
 			//av_frame_make_writable(picture);
 			m->f = picture;
-
 			AVDictionary *codec_options = NULL;
-			av_dict_set( &codec_options, "vprofile", "main", 0 );
 			av_dict_set( &codec_options, "preset", "veryfast", 0 );
 
 			return avcodec_open2(m->ctx, NULL, &codec_options);
+		}
+
+		static int h264_create_frame(h264enc_t *m) {
+		    m->f = av_frame_alloc();
+
+		    //m->f->format = m->ctx->pix_fmt;
+			m->f->format = PIX_FMT_YUV420P;
+		    m->f->width  = m->ctx->width;
+		    m->f->height = m->ctx->height;
+
+		 	av_log(m->ctx, AV_LOG_DEBUG, "Allocate AVFrame, w:%d, h%d, pix_fmt:%d\n",m->ctx->width,m->ctx->height,m->f->format);
+
+			if (av_frame_get_buffer(m->f, 32) < 0) {
+			 	av_log(m->ctx, AV_LOG_DEBUG, "Could not allocate frame data.\n");
+		    }
 		}
 
 		static void set_ppts(h264enc_t *m, int64_t ppts) {
@@ -69,8 +89,10 @@ import (
 
 		static void h264enc_release(h264enc_t *m) {
 			//release context
-			avcodec_close(m->ctx);
-			av_free(m->ctx);
+			if (m->release_ctx) {
+				avcodec_close(m->ctx);
+				av_free(m->ctx);
+			}
 
 			//release frame
 			//av_freep(&m->f->data[0]);
@@ -83,17 +105,34 @@ import (
 	"image"
 	"unsafe"
 )
+import (
+	"log"
+	"time"
+)
 
 type H264Encoder struct {
-	m         C.h264enc_t
-	Header    []byte
-	Pixfmt    image.YCbCrSubsampleRatio
-	W, H      int
-	pts       int64
-	FrameRate int
-	frameNum  int
-	Preset    string
-	Profile   string
+	m               C.h264enc_t
+	Header          []byte
+	Pixfmt          image.YCbCrSubsampleRatio
+	W, H            int
+	pts             int64
+	FrameRate       int
+	frameNum        int
+	Preset          string
+	Profile         string
+	UseGlobalHeader bool
+}
+
+func NewH264EncoderFromCtx(ctx *C.AVCodecContext) (m *H264Encoder) {
+	m = &H264Encoder{}
+	m.W = int(ctx.width)
+	m.H = int(ctx.height)
+	m.m.ctx = ctx
+	m.m.release_ctx = 0
+
+	C.h264_create_frame(&m.m)
+
+	return
 }
 
 func NewH264Encoder(
@@ -158,6 +197,10 @@ func NewH264Out() *H264Out {
 	return ho
 }
 
+func (ho *H264Out) Pts() int64 {
+	return int64(ho.pkt.pts)
+}
+
 func (ho *H264Out) Free() {
 	if ho.AVFree {
 		C.av_free_packet(&ho.pkt)
@@ -181,16 +224,19 @@ func (m *H264Encoder) Init() error {
 	}
 
 	// set preset
-	if len(m.Preset[0]) > 0 {
-		m.m.preset[0] = C.CString(m.Preset[0])
-	}
-	if len(m.Preset[1]) > 0 {
-		m.m.preset[1] = C.CString(m.Preset[1])
+	if len(m.Preset) > 0 {
+		m.m.preset = C.CString(m.Preset)
 	}
 
 	// set profile
 	if len(m.Profile) > 0 {
 		m.m.profile = C.CString(m.Profile)
+	}
+
+	// global header
+	m.m.global_header = 0
+	if m.UseGlobalHeader {
+		m.m.global_header = 1
 	}
 
 	avLock.Lock()
@@ -201,7 +247,18 @@ func (m *H264Encoder) Init() error {
 		return errors.New("open encoder failed")
 	}
 
-	m.Header = fromCPtr(unsafe.Pointer(m.m.ctx.extradata), (int)(m.m.ctx.extradata_size))
+	log.Printf("Create encoder, extradata_size:%d", (int)(m.m.ctx.extradata_size))
+
+	if (int)(m.m.ctx.extradata_size) > 0 {
+		m.Header = make([]byte, (int)(m.m.ctx.extradata_size))
+		C.memcpy(
+			unsafe.Pointer(&m.Header[0]),
+			unsafe.Pointer(m.m.ctx.extradata),
+			(C.size_t)((int)(m.m.ctx.extradata_size)),
+		)
+	}
+
+	//m.Header = fromCPtr(unsafe.Pointer(m.m.ctx.extradata), (int)(m.m.ctx.extradata_size))
 	//m.Header = fromCPtr(unsafe.Pointer(m.m.pps), (int)(m.m.ppslen))
 
 	return nil
@@ -211,15 +268,27 @@ func (m *H264Encoder) Release() {
 	C.h264enc_release(&m.m)
 }
 
+func (m *H264Encoder) DisableGlobalHeaders() {
+	log.Println("flags before:", m.m.ctx.flags)
+	m.m.ctx.flags ^= C.CODEC_FLAG_GLOBAL_HEADER
+	log.Println("flags after:", m.m.ctx.flags)
+
+	time.Sleep(time.Second * 5)
+}
+
+func (m *H264Encoder) EnableGlobalHeaders() {
+	m.m.ctx.flags ^= C.CODEC_FLAG_GLOBAL_HEADER
+}
+
 func (m *H264Encoder) Encode(img *image.YCbCr) (out *H264Out, err error) {
 	var f *C.AVFrame
 	if img == nil {
 		f = nil
 	} else {
-		if img.SubsampleRatio != m.Pixfmt {
-			err = errors.New("image pixfmt not match")
-			return
-		}
+		// if img.SubsampleRatio != m.Pixfmt {
+		// 	err = errors.New("image pixfmt not match")
+		// 	return
+		// }
 		if img.Rect.Dx() != m.W || img.Rect.Dy() != m.H {
 			err = errors.New("image size not match")
 			return

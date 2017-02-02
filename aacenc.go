@@ -26,6 +26,8 @@ import (
 						int64_t pts;
 						int64_t dts;
 						uint8_t* channels_buf[2];
+						int release_ctx;
+						int release_frame;
 					} aacenc_t ;
 
 					static int select_channel_layout(AVCodec *codec) {
@@ -56,15 +58,19 @@ import (
 						m->ctx->channels = m->channels;
 						m->ctx->channel_layout = m->channel_layout;
 						m->ctx->profile = m->profile;
-						m->ctx->flags |= CODEC_FLAG_GLOBAL_HEADER;
 				  		m->ctx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
+						m->ctx->flags |= CODEC_FLAG_GLOBAL_HEADER;
 
 						int r = avcodec_open2(m->ctx, m->c, NULL);
 						if(r != 0) {
 							static char error_buffer[255];
 							av_strerror(r, error_buffer, sizeof(error_buffer));
 							av_log(m->ctx, AV_LOG_DEBUG, "error %s\n", error_buffer);
+
+							return r;
 						}
+
+						m->release_ctx = 1;
 
 						av_log(m->ctx, AV_LOG_DEBUG, "extra %d\n", m->ctx->extradata_size);
 						av_log(m->ctx, AV_LOG_DEBUG, "frame size %d\n", m->ctx->frame_size);
@@ -75,16 +81,32 @@ import (
 						m->f->format = m->ctx->sample_fmt;
 						m->f->channel_layout = m->ctx->channel_layout;
 
+						m->release_frame = 1;
+
 						return r;
+					}
+
+					static void aacenc_new_frame(aacenc_t *m) {
+						m->f = av_frame_alloc();
+
+						m->f->nb_samples = m->ctx->frame_size;
+						m->f->format = m->ctx->sample_fmt;
+						m->f->channel_layout = m->ctx->channel_layout;
+
+						m->release_frame = 1;
 					}
 
 					static void aacenc_release(aacenc_t *m) {
 						// release context
-						avcodec_close(m->ctx);
-						av_free(m->ctx);
+						if (m->release_ctx) {
+							avcodec_close(m->ctx);
+							av_free(m->ctx);
+						}
 
 						// release frame
-						av_frame_free(&m->f);
+						if (m->release_frame) {
+							av_frame_free(&m->f);
+						}
 					}
 
 					static void bind_buf(aacenc_t *m, uint8_t* samples) {
@@ -205,6 +227,41 @@ func NewAACEncoder() (m *AACEncoder, err error) {
 		unsafe.Pointer(&m.m.ctx.extradata),
 		(C.size_t)(len(m.Header)),
 	)
+	return
+}
+
+func NewAACEncoderFromCtx(ctx *C.AVCodecContext) (m *AACEncoder) {
+	m = &AACEncoder{
+		SampleRate:    int(ctx.sample_rate),
+		BitRate:       int(ctx.bit_rate),
+		Channels:      int(ctx.channels),
+		ChannelLayout: int(ctx.channel_layout),
+		Profile:       int(ctx.profile),
+		sampleSize:    int(C.av_get_bytes_per_sample(ctx.sample_fmt)),
+		frameSize:     int(ctx.frame_size),
+	}
+	m.m.ctx = ctx
+
+	// AV_SAMPLE_FMT_S16
+	// m.sampleSize = 2
+	// m.frameSize = int(m.m.ctx.frame_size)
+
+	C.aacenc_new_frame(&m.m)
+
+	C.bind_buf(&m.m, (*C.uint8_t)(unsafe.Pointer(&m.bufR[0])))
+
+	extraSz := (int)(m.m.ctx.extradata_size)
+	if extraSz > 0 {
+		m.Header = make([]byte, (int)(m.m.ctx.extradata_size))
+		C.memcpy(
+			unsafe.Pointer(&m.Header[0]),
+			unsafe.Pointer(&m.m.ctx.extradata),
+			(C.size_t)(len(m.Header)),
+		)
+	} else {
+		log.Println("AAC codec, extra size: 0")
+	}
+
 	return
 }
 

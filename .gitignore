@@ -1,0 +1,9 @@
+*.log
+*.exe
+*.mp4
+*.wav
+*.json
+*.flv
+*.db
+test/h264_decoder/h264_decoder
+test/h264_decoder/out

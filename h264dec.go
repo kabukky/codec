@@ -18,10 +18,11 @@ import (
 
 		static int h264dec_new(h264dec_t *h, uint8_t *data, int len) {
 			h->c = avcodec_find_decoder(AV_CODEC_ID_H264);
+
 			h->ctx = avcodec_alloc_context3(h->c);
-			h->f = av_frame_alloc();
 			h->ctx->extradata = data;
 			h->ctx->extradata_size = len;
+			h->f = av_frame_alloc();
 
 			return avcodec_open2(h->ctx, h->c, 0);
 		}
@@ -38,10 +39,33 @@ import (
 		static int h264dec_decode(h264dec_t *h, uint8_t *data, int len) {
 			AVPacket pkt;
 			av_init_packet(&pkt);
-			pkt.data = data;
-			pkt.size = len;
+
+			if (data != NULL) {
+				pkt.data = data;
+				pkt.size = len;
+			}
 
 			int r = avcodec_decode_video2(h->ctx, h->f, &h->got, &pkt);
+
+			static char error_buffer[255];
+			if (r < 0) {
+				av_strerror(r, error_buffer, sizeof(error_buffer));
+				av_log(h->ctx, AV_LOG_DEBUG, "Video decode error: %s\n", error_buffer);
+			}
+
+			return r;
+		}
+
+		static int h264dec_decode2(h264dec_t *h, uint8_t *data, int len, int64_t pts, int64_t dts, AVFrame *frame) {
+			AVPacket pkt;
+			av_init_packet(&pkt);
+
+			pkt.data = data;
+			pkt.size = len;
+			pkt.pts  = pts;
+			pkt.dts  = dts;
+
+			int r = avcodec_decode_video2(h->ctx, frame, &h->got, &pkt);
 
 			static char error_buffer[255];
 			if (r < 0) {
@@ -57,28 +81,34 @@ import (
 	"image"
 	"unsafe"
 )
+import "log"
 
 type H264Decoder struct {
-	m   C.h264dec_t
-	Pts int64
+	m C.h264dec_t
 }
 
 func NewH264Decoder(header []byte) (m *H264Decoder, err error) {
 	m = &H264Decoder{}
+
 	avLock.Lock()
+	defer avLock.Unlock()
+
 	r := C.h264dec_new(
 		&m.m,
 		(*C.uint8_t)(unsafe.Pointer(&header[0])),
 		(C.int)(len(header)),
 	)
-	avLock.Unlock()
+
 	if int(r) < 0 {
 		err = errors.New("open codec failed")
 	}
+
 	return
 }
 
 func (m *H264Decoder) Release() {
+	log.Printf("Decoder released")
+
 	C.h264dec_release(&m.m)
 }
 
@@ -102,8 +132,6 @@ func (m *H264Decoder) Decode(nal []byte) (f *image.YCbCr, err error) {
 	ys := int(m.m.f.linesize[0])
 	cs := int(m.m.f.linesize[1])
 
-	m.Pts = int64(m.m.f.pts)
-
 	f = &image.YCbCr{
 		Y:              fromCPtr(unsafe.Pointer(m.m.f.data[0]), ys*h),
 		Cb:             fromCPtr(unsafe.Pointer(m.m.f.data[1]), cs*h/2),
@@ -117,49 +145,30 @@ func (m *H264Decoder) Decode(nal []byte) (f *image.YCbCr, err error) {
 	return
 }
 
-func (m *H264Decoder) Decode2(nal []byte, f *image.YCbCr) (err error) {
-	if m.m.f.width != f.Rect.Max.X || m.m.f.height != f.Rect.Max.Y {
-		err = errors.New("Decode2: invalid image size ")
-		return
+func (m *H264Decoder) Decode2(avPacket *AVPacket, avFrame *AVFrame) (got bool, err error) {
+	p := (*C.uint8_t)(unsafe.Pointer(nil))
+	l := (C.int)(0)
+	if avPacket.Data != nil {
+		p = (*C.uint8_t)(unsafe.Pointer(&avPacket.Data[0]))
+		l = (C.int)(len(avPacket.Data))
 	}
 
-	r := C.h264dec_decode(
+	r := C.h264dec_decode2(
 		&m.m,
-		(*C.uint8_t)(unsafe.Pointer(&nal[0])),
-		(C.int)(len(nal)),
+		p,
+		l,
+		(C.int64_t)(avPacket.Pts),
+		(C.int64_t)(avPacket.Dts),
+		avFrame.f,
 	)
+
 	if int(r) < 0 {
 		err = errors.New("decode failed")
-		return
-	}
-	if m.m.got == 0 {
-		err = errors.New("no picture")
+
 		return
 	}
 
-	ys := int(m.m.f.linesize[0])
-	cs := int(m.m.f.linesize[1])
-
-	m.Pts = int64(m.m.f.pts)
-
-	f.YStride = ys
-	f.CStride = cs
-
-	C.memcpy(
-		unsafe.Pointer(&f.Y[0]),
-		unsafe.Pointer(m.m.f.data[0]),
-		(C.size_t)(ys*h),
-	)
-	C.memcpy(
-		unsafe.Pointer(&f.Cb[0]),
-		unsafe.Pointer(m.m.f.data[1]),
-		(C.size_t)(cs*h/2),
-	)
-	C.memcpy(
-		unsafe.Pointer(&f.Cr[0]),
-		unsafe.Pointer(m.m.f.data[2]),
-		(C.size_t)(cs*h/2),
-	)
+	got = m.m.got > 0
 
 	return
 }
