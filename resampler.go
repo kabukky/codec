@@ -88,7 +88,10 @@ import (
 	//	"strings"
 	//"log"
 )
-import "unsafe"
+import (
+	"log"
+	"unsafe"
+)
 
 type AVResampler struct {
 	InSampleRate     int
@@ -150,6 +153,9 @@ func (r *AVResampler) Convert(samples []byte) ([]byte, error) {
 }
 
 func (r *AVResampler) Release() error {
+	delay := C.avresample_get_delay(r.m.avr)
+	log.Printf("AVResampler, delay:%+v", delay)
+
 	C.release_resampler(&r.m)
 
 	return nil

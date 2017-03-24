@@ -164,6 +164,10 @@ func NewAACDecoder(codec string, header []byte) (m *AACDecoder, err error) {
 		)
 	}
 
+	//if m.m.c.capabilities&C.CODEC_CAP_DELAY > 0 {
+	log.Printf("Audio decoder capabilities, codec:%s, cap:%+v, CODEC_CAP_DELAY:%+v", codec, m.m.c.capabilities, C.CODEC_CAP_DELAY)
+	//}
+
 	if int(r) < 0 {
 		err = errors.New("open codec failed")
 	}

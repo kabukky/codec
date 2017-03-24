@@ -201,6 +201,10 @@ func (ho *H264Out) Pts() int64 {
 	return int64(ho.pkt.pts)
 }
 
+func (ho *H264Out) Dts() int64 {
+	return int64(ho.pkt.dts)
+}
+
 func (ho *H264Out) Free() {
 	if ho.AVFree {
 		C.av_free_packet(&ho.pkt)
@@ -274,6 +278,14 @@ func (m *H264Encoder) DisableGlobalHeaders() {
 	log.Println("flags after:", m.m.ctx.flags)
 
 	time.Sleep(time.Second * 5)
+}
+
+func (m *H264Encoder) Pts() int64 {
+	return m.pts
+}
+
+func (m *H264Encoder) SetPts(pts int64) {
+	m.pts = pts
 }
 
 func (m *H264Encoder) EnableGlobalHeaders() {

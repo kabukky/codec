@@ -72,6 +72,9 @@ import (
 				return -1;
 			}
 
+			// Write the stream header, if any.
+			avformat_write_header(m->ctx, NULL);
+
 			return 0;
 		}
 
@@ -278,19 +281,28 @@ import (
 			pkt.dts = tm;
 
 			av_packet_rescale_ts(&pkt, m->audio_st->codec->time_base, m->audio_st->time_base);
-			av_log(m->ctx, AV_LOG_DEBUG, "rescale: pts: %ld, dts: %ld, len: %d\n", pkt.pts, pkt.dts,len);
+			av_log(m->ctx, AV_LOG_INFO, "rescale: pts: %ld, dts: %ld, len: %d\n", pkt.pts, pkt.dts,len);
 
 			int ret = av_interleaved_write_frame(m->ctx, &pkt);
 
 			static char error_buffer[255];
 			av_strerror(ret, error_buffer, sizeof(error_buffer));
-			av_log(m->ctx, AV_LOG_DEBUG, "write: pts: %ld, dts: %ld, error: %s\n", pkt.pts, tm, error_buffer);
+			av_log(m->ctx, AV_LOG_INFO, "write: pts: %ld, dts: %ld, error: %s\n", pkt.pts, tm, error_buffer);
 
 			return ret;
 		}
 
 		static int complete(avformat_t *m) {
+			int ret;
+			static char error_buffer[255];
+
 			av_log(m->ctx, AV_LOG_DEBUG, "Release AVFormats\n");
+
+			// ret = av_interleaved_write_frame(m->ctx, NULL);
+			// if (ret < 0) {
+			// 	av_strerror(ret, error_buffer, sizeof(error_buffer));
+			// 	av_log(m->ctx, AV_LOG_DEBUG, "av_interleaved_write_frame, error: %s\n",  error_buffer);
+			// }
 
 			av_write_trailer(m->ctx);
 
@@ -380,6 +392,10 @@ func CreateAVFormat2(fname string, useToAnnexbFilter bool) (*AVFormat, error) {
 		return nil, err
 	}
 	return f, nil
+}
+
+func (f *AVFormat) APts() *int64 {
+	return &f.pts
 }
 
 func (f *AVFormat) UseGlobalHeaders() bool {
@@ -482,6 +498,10 @@ func (f *AVFormat) AddAudioStream2(info *AVStreamInfo, extra []byte) (err error)
 		f.m.audio_st.codec.flags |= C.CODEC_FLAG_GLOBAL_HEADER
 	}
 
+	if f.m.c.capabilities&C.CODEC_CAP_DELAY > 0 {
+		log.Printf("Audio codec has delay, cap:%+v, flag:%+v", f.m.c.capabilities, C.CODEC_CAP_DELAY)
+	}
+
 	// setup stream
 	f.m.audio_st.time_base.num = C.int(1)
 	f.m.audio_st.time_base.den = C.int(info.SampleRate)
@@ -531,12 +551,8 @@ func (f *AVFormat) WritePacket2(o *H264Out) {
 	//C.write_pkt(&f.m, &o.pkt)
 	//o.pkt.data = (*C.uint8_t)(unsafe.Pointer(&o.Data[0]))
 	if o.Data != nil && len(o.Data) > 0 {
-		log.Println("Set data pointer, sz:", len(o.Data))
-
 		C.write_pkt3(&f.m, &o.pkt, (*C.uint8_t)(unsafe.Pointer(&o.Data[0])))
 	} else {
-		log.Printf("Nil data pointer, WTF? %+v", o)
-
 		C.write_pkt3(&f.m, &o.pkt, (*C.uint8_t)(unsafe.Pointer(nil)))
 	}
 }
@@ -578,9 +594,10 @@ func (f *AVFormat) WriteVideoData(nal []byte, timeStamp uint32, isKeyFrame bool)
 	return
 }
 
-func (f *AVFormat) WriteAudioData(nal []byte, timeStamp uint32) (err error) {
-	r := C.write_audio_pkt2(&f.m, (*C.uint8_t)(unsafe.Pointer(&nal[0])), (C.int)(len(nal)), C.int64_t(f.pts))
-	f.pts += 1024
+func (f *AVFormat) WriteAudioData(nal []byte, timeStamp int64) (err error) {
+	//r := C.write_audio_pkt2(&f.m, (*C.uint8_t)(unsafe.Pointer(&nal[0])), (C.int)(len(nal)), C.int64_t(f.pts))
+	r := C.write_audio_pkt2(&f.m, (*C.uint8_t)(unsafe.Pointer(&nal[0])), (C.int)(len(nal)), C.int64_t(timeStamp))
+	//f.pts = timeStamp
 
 	if int(r) != 0 {
 		err = errors.New(fmt.Sprintf("Write audio data failed, code:%v", r))

@@ -80,6 +80,7 @@ import (
 						m->f->nb_samples = m->ctx->frame_size;
 						m->f->format = m->ctx->sample_fmt;
 						m->f->channel_layout = m->ctx->channel_layout;
+						m->f->pts =0;
 
 						m->release_frame = 1;
 
@@ -90,8 +91,10 @@ import (
 						m->f = av_frame_alloc();
 
 						m->f->nb_samples = m->ctx->frame_size;
+						//m->f->nb_samples = 1024;
 						m->f->format = m->ctx->sample_fmt;
 						m->f->channel_layout = m->ctx->channel_layout;
+						m->f->pts =0;
 
 						m->release_frame = 1;
 					}
@@ -124,11 +127,29 @@ import (
 						pkt.data = m->buf;
 						pkt.size = sizeof(m->buf);
 						avcodec_encode_audio2(m->ctx, &pkt, m->f, &m->got);
-						av_log(m->ctx, AV_LOG_DEBUG, "got %d size %d, pkt_dts:%ld, frame_dts:%ld\n", m->got, pkt.size,pkt.dts,m->f->pts);
+						av_log(m->ctx, AV_LOG_INFO, "got %d size %d, pkt_dts:%ld, frame_dts:%ld\n", m->got, pkt.size,pkt.dts,m->f->pts);
+						m->f->pts += 1024;
 
 						m->size = pkt.size;
 						m->pts = pkt.pts;
 						m->dts = pkt.dts;
+					}
+
+					static int aacenc_flush(aacenc_t *m) {
+						int ret;
+
+						AVPacket pkt;
+						av_init_packet(&pkt);
+						pkt.data = m->buf;
+						pkt.size = sizeof(m->buf);
+
+						ret = avcodec_encode_audio2(m->ctx, &pkt, NULL, &m->got);
+
+						m->size = pkt.size;
+						m->pts = pkt.pts;
+						m->dts = pkt.dts;
+
+						return ret;
 					}
 
 					static int get_buffer_size(aacenc_t *m) {
@@ -146,7 +167,10 @@ import (
 	"errors"
 	"unsafe"
 )
-import "log"
+import (
+	"fmt"
+	"log"
+)
 
 const (
 	FF_PROFILE_AAC_MAIN  = 0
@@ -188,6 +212,7 @@ type AACOut struct {
 	Data []byte
 	Pts  int64
 	Dts  int64
+	Ts   int64
 }
 
 type AACEncoder struct {
@@ -380,6 +405,40 @@ func (m *AACEncoder) HasFrame() bool {
 	return m.bufLen >= m.frameSize
 }
 
+func (m *AACEncoder) BufLen() int {
+	return m.bufLen
+}
+
+func (m *AACEncoder) Flush2() (ret *AACOut, got bool, err error) {
+	// encode samples
+	r := C.aacenc_flush(&m.m)
+	if int(r) < 0 {
+		err = fmt.Errorf("AACEncoder flush, encode failed")
+		return
+	}
+
+	// check got flag
+	got = int(m.m.got) > 0
+	if !got {
+		return
+	}
+
+	// extract and return encoded data
+	ret = &AACOut{
+		Data: make([]byte, (int)(m.m.size)),
+		Pts:  int64(m.m.pts),
+		Dts:  int64(m.m.dts),
+	}
+
+	C.memcpy(
+		unsafe.Pointer(&ret.Data[0]),
+		unsafe.Pointer(&m.m.buf[0]),
+		(C.size_t)(m.m.size),
+	)
+
+	return
+}
+
 func (m *AACEncoder) Encode2(channels []AChannelSamples) (ret *AACOut, err error) {
 	if channels != nil {
 		if len(channels) != m.Channels {
@@ -421,7 +480,7 @@ func (m *AACEncoder) Encode2(channels []AChannelSamples) (ret *AACOut, err error
 	m.bufLen -= m.frameSize
 
 	// check got flag
-	if int(m.m.got) == 0 {
+	if m.m.got == 0 {
 		err = errors.New("no data")
 		return
 	}
@@ -431,6 +490,73 @@ func (m *AACEncoder) Encode2(channels []AChannelSamples) (ret *AACOut, err error
 		Data: make([]byte, (int)(m.m.size)),
 		Pts:  int64(m.m.pts),
 		Dts:  int64(m.m.dts),
+	}
+
+	C.memcpy(
+		unsafe.Pointer(&ret.Data[0]),
+		unsafe.Pointer(&m.m.buf[0]),
+		(C.size_t)(m.m.size),
+	)
+
+	return
+}
+
+func (m *AACEncoder) Encode3(channels []AChannelSamples, timeStamp int64) (ret *AACOut, err error) {
+	if channels != nil {
+		if len(channels) != m.Channels {
+			err = errors.New("Channels number not equal")
+			return
+		}
+
+		// channel buf size
+		channelBufSz := 0
+		for _, v := range channels {
+			if channelBufSz == 0 {
+				channelBufSz = len(v)
+				continue
+			}
+
+			if channelBufSz != len(v) {
+				err = errors.New("channels size not equal")
+				return
+			}
+		}
+
+		samplesCount := channelBufSz / m.sampleSize
+
+		// copy samples to codec buf
+		m.samplesToBuf(channels, samplesCount, 0)
+	}
+
+	// until codec buf not full, return no_data
+	if m.bufLen < m.frameSize {
+		err = errors.New("more data")
+		return
+	}
+
+	// set pts, pts in frame count
+	// recalc ts from ms to frames
+	m.m.f.pts = C.int64_t(timeStamp * 44100 / 1000)
+
+	// encode samples
+	C.aacenc_encode(&m.m)
+
+	// shift buff
+	copy(m.bufR[0:], m.bufR[m.frameSize*m.Channels*m.sampleSize:])
+	m.bufLen -= m.frameSize
+
+	// check got flag
+	if m.m.got == 0 {
+		err = errors.New("no data")
+		return
+	}
+
+	// extract and return encoded data
+	ret = &AACOut{
+		Data: make([]byte, (int)(m.m.size)),
+		Pts:  int64(m.m.pts),
+		Dts:  int64(m.m.dts),
+		Ts:   timeStamp,
 	}
 
 	C.memcpy(
