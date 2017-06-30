@@ -37,6 +37,13 @@ func (f *AVFrame) GetPktDts() int64 {
 	return int64(f.f.pkt_dts)
 }
 
+func (f *AVFrame) GetSize() image.Rectangle {
+	return image.Rectangle{
+		Min: image.Point{0, 0},
+		Max: image.Point{int(f.f.width), int(f.f.height)},
+	}
+}
+
 func (f *AVFrame) ImgCopy(img *image.YCbCr) error {
 	if int(f.f.width) != img.Rect.Max.X || int(f.f.height) != img.Rect.Max.Y {
 		return fmt.Errorf("Decode2: invalid image size, %dx%d  vs %dx%d", int(f.f.width), int(f.f.height), img.Rect.Max.X, img.Rect.Max.Y)

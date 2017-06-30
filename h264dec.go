@@ -57,17 +57,37 @@ import (
 		}
 
 		static int h264dec_decode2(h264dec_t *h, uint8_t *data, int len, int64_t pts, int64_t dts, AVFrame *frame) {
+			int r;
+			static char error_buffer[255];
 			AVPacket pkt;
+
 			av_init_packet(&pkt);
 
-			pkt.data = data;
+			//pkt.data = data;
 			pkt.size = len;
 			pkt.pts  = pts;
 			pkt.dts  = dts;
 
-			int r = avcodec_decode_video2(h->ctx, frame, &h->got, &pkt);
+			// copy go memory first
+			// allocate memory by av_malloc
+			// use size with FF_INPUT_BUFFER_PADDING_SIZE
+			// create reference counted buffer
+			void *new_packet_data;
+			new_packet_data = av_malloc(len+ FF_INPUT_BUFFER_PADDING_SIZE);
+			memset(new_packet_data + len, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+			memcpy(new_packet_data, data, len);
 
-			static char error_buffer[255];
+			r = av_packet_from_data(&pkt, (uint8_t *)new_packet_data, len);
+			if (r < 0) {
+				av_strerror(r, error_buffer, sizeof(error_buffer));
+				av_log(h->ctx, AV_LOG_DEBUG, "Video decode error: %s\n", error_buffer);
+
+				return r;
+			}
+
+
+			r = avcodec_decode_video2(h->ctx, frame, &h->got, &pkt);
+
 			if (r < 0) {
 				av_strerror(r, error_buffer, sizeof(error_buffer));
 				av_log(h->ctx, AV_LOG_DEBUG, "Video decode error: %s\n", error_buffer);

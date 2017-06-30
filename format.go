@@ -99,7 +99,6 @@ import (
 			av_dict_set( &codec_options, "preset", "veryfast", 0 );
 
 			if (avcodec_open2(m->video_st->codec, NULL, &codec_options) < 0) {
-				fprintf(stderr, "could not open codec\n");
 				av_log(m->ctx, AV_LOG_DEBUG, "could not open codec\n");
 			}
 
