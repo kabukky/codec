@@ -3,8 +3,7 @@ package codec
 import (
 
 	/*
-		#cgo CFLAGS: -I/usr/local/include
-		#cgo LDFLAGS: -lavformat -lavcodec -lavresample -lavutil -lx264 -lz -ldl -lm
+		#cgo linux,amd64 pkg-config: libav_linux_amd64.pc
 
 		#include <stdio.h>
 		#include <stdlib.h>
@@ -42,7 +41,7 @@ import (
 			m->ctx->width = m->w;
 			m->ctx->height = m->h;
 			m->ctx->bit_rate = m->bitrate;
-			m->ctx->time_base = (AVRational){1,m->framerate};
+			m->ctx->time_base = (AVRational){1,1000};
 			//m->ctx->framerate = (AVRational){1,m->framerate};
 			m->ctx->gop_size = 24;
 			m->ctx->pix_fmt = m->pixfmt;
@@ -80,6 +79,17 @@ import (
 			if (av_frame_get_buffer(m->f, 32) < 0) {
 			 	av_log(m->ctx, AV_LOG_DEBUG, "Could not allocate frame data.\n");
 		    }
+		}
+
+		static void h264_set_frame_channel(h264enc_t *m, int line, uint8_t *y, int stride, int h) {
+			if(m->f->linesize[line] == stride) {
+				memcpy(m->f->data[line], y, m->f->linesize[line]*h);
+				return;
+			}
+
+			for(int i=0; i < h; ++i) {
+				memcpy(m->f->data[line]+i*m->f->linesize[line], y+i*stride, stride);
+			}
 		}
 
 		static void set_ppts(h264enc_t *m, int64_t ppts) {
@@ -197,8 +207,19 @@ func NewH264Out() *H264Out {
 	return ho
 }
 
+// Size - return size of packet
+func (ho *H264Out) Size() int64 {
+	return int64(ho.pkt.size)
+}
+
+// Pts - return packet pts
 func (ho *H264Out) Pts() int64 {
 	return int64(ho.pkt.pts)
+}
+
+func (ho *H264Out) PtsSub(pts int64) {
+	ho.pkt.pts -= C.int64_t(pts)
+	ho.pkt.dts -= C.int64_t(pts)
 }
 
 func (ho *H264Out) Dts() int64 {
@@ -292,7 +313,7 @@ func (m *H264Encoder) EnableGlobalHeaders() {
 	m.m.ctx.flags ^= C.CODEC_FLAG_GLOBAL_HEADER
 }
 
-func (m *H264Encoder) Encode(img *image.YCbCr) (out *H264Out, err error) {
+func (m *H264Encoder) Encode(img *image.YCbCr, pts int64) (out *H264Out, err error) {
 	var f *C.AVFrame
 	if img == nil {
 		f = nil
@@ -306,20 +327,31 @@ func (m *H264Encoder) Encode(img *image.YCbCr) (out *H264Out, err error) {
 			return
 		}
 		f = m.m.f
-		f.data[0] = (*C.uint8_t)(unsafe.Pointer(&img.Y[0]))
-		f.data[1] = (*C.uint8_t)(unsafe.Pointer(&img.Cb[0]))
-		f.data[2] = (*C.uint8_t)(unsafe.Pointer(&img.Cr[0]))
-		f.linesize[0] = (C.int)(img.YStride)
-		f.linesize[1] = (C.int)(img.CStride)
-		f.linesize[2] = (C.int)(img.CStride)
+
+		// Похоже, что вот так делать нельзя, поскольку тут идет
+		// сохранение указателей го в память, которая не го
+		// f.data[0] = (*C.uint8_t)(unsafe.Pointer(&img.Y[0]))
+		// f.data[1] = (*C.uint8_t)(unsafe.Pointer(&img.Cb[0]))
+		// f.data[2] = (*C.uint8_t)(unsafe.Pointer(&img.Cr[0]))
+		// f.linesize[0] = (C.int)(img.YStride)
+		// f.linesize[1] = (C.int)(img.CStride)
+		// f.linesize[2] = (C.int)(img.CStride)
+
+		// copy img memory to AVFrame memory
+		// if AVFrame stride equal img stride copy all plain at once
+		// if sride not equal, copy line by line
+		C.h264_set_frame_channel(&m.m, 0, (*C.uint8_t)(unsafe.Pointer(&img.Y[0])), (C.int)(img.YStride), (C.int)(m.H))
+		C.h264_set_frame_channel(&m.m, 1, (*C.uint8_t)(unsafe.Pointer(&img.Cb[0])), (C.int)(img.CStride), (C.int)(m.H/2))
+		C.h264_set_frame_channel(&m.m, 2, (*C.uint8_t)(unsafe.Pointer(&img.Cr[0])), (C.int)(img.CStride), (C.int)(m.H/2))
 
 		//log.Println("avf pts:", m.pts)
 
-		f.pts = (C.int64_t)(m.pts)
-		C.set_ppts(&m.m, (C.int64_t)(m.pts))
+		//f.pts = (C.int64_t)(m.pts)
 
-		//m.pts++
-		m.pts += 1
+		//C.set_ppts(&m.m, (C.int64_t)(m.pts))
+		C.set_ppts(&m.m, (C.int64_t)(pts))
+
+		m.pts++
 	}
 
 	out = NewH264Out()

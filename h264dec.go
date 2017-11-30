@@ -2,8 +2,7 @@ package codec
 
 import (
 	/*
-		#cgo CFLAGS: -I/usr/local/include
-		#cgo LDFLAGS: -L/usr/local/lib  -lavformat -lavcodec -lavresample -lavutil -lx264 -lz -ldl -lm
+		#cgo linux,amd64 pkg-config: libav_linux_amd64.pc
 
 		#include "libavcodec/avcodec.h"
 		#include "libavutil/avutil.h"
@@ -22,6 +21,16 @@ import (
 			h->ctx = avcodec_alloc_context3(h->c);
 			h->ctx->extradata = data;
 			h->ctx->extradata_size = len;
+			h->f = av_frame_alloc();
+
+			return avcodec_open2(h->ctx, h->c, 0);
+		}
+
+		static int vp8_new(h264dec_t *h) {
+			h->c = avcodec_find_decoder(AV_CODEC_ID_VP8);
+
+			h->ctx = avcodec_alloc_context3(h->c);
+			h->ctx->refcounted_frames = 1;
 			h->f = av_frame_alloc();
 
 			return avcodec_open2(h->ctx, h->c, 0);
@@ -119,6 +128,20 @@ func NewH264Decoder(header []byte) (m *H264Decoder, err error) {
 		(C.int)(len(header)),
 	)
 
+	if int(r) < 0 {
+		err = errors.New("open codec failed")
+	}
+
+	return
+}
+
+func NewVP8Decoder() (m *H264Decoder, err error) {
+	m = &H264Decoder{}
+
+	avLock.Lock()
+	defer avLock.Unlock()
+
+	r := C.vp8_new(&m.m)
 	if int(r) < 0 {
 		err = errors.New("open codec failed")
 	}

@@ -2,8 +2,7 @@ package codec
 
 import (
 	/*
-		#cgo CFLAGS: -I/usr/local/include
-		#cgo LDFLAGS: -L/usr/local/lib  -lavformat -lavcodec -lavresample -lavutil -lfdk-aac -lx264 -lz -ldl -lm
+		#cgo linux,amd64 pkg-config: libav_linux_amd64.pc
 
 		#include <stdio.h>
 		#include <stdlib.h>
@@ -97,6 +96,8 @@ import (
 
 			AVDictionary *codec_options = NULL;
 			av_dict_set( &codec_options, "preset", "veryfast", 0 );
+			av_dict_set( &codec_options, "profile", "high", 0 );
+			av_dict_set( &codec_options, "level", "41", 0 );
 
 			if (avcodec_open2(m->video_st->codec, NULL, &codec_options) < 0) {
 				av_log(m->ctx, AV_LOG_DEBUG, "could not open codec\n");
@@ -167,6 +168,10 @@ import (
 		}
 
 		static int write_pkt2(avformat_t *m, uint8_t *data, int len, int64_t tm, int isKeyFrame) {
+			if (data == NULL) {
+				return 0;
+			}
+
 			m->pkt.stream_index = m->video_st->index;
 			m->pkt.pts = tm;
 			m->pkt.dts = tm;
@@ -342,6 +347,8 @@ type AVStreamInfo struct {
 	TimeBase       AVRational
 	GopSize        int
 	UseMp4ToAnnexb bool
+	Tbn            int
+	CodecID        int
 
 	// audio
 	DisableAudio  bool
@@ -427,7 +434,14 @@ func (f *AVFormat) AddVideoStream2(info *AVStreamInfo, extra []byte) (err error)
 
 	// setup codec
 	f.m.video_st.codec.codec_type = C.AVMEDIA_TYPE_VIDEO
+
 	f.m.video_st.codec.codec_id = C.AV_CODEC_ID_H264
+	if info.CodecID > 0 {
+		switch info.CodecID {
+		case int(C.AV_CODEC_ID_VP8):
+			f.m.video_st.codec.codec_id = C.AV_CODEC_ID_VP8
+		}
+	}
 
 	f.m.video_st.codec.width = C.int(info.W)
 	f.m.video_st.codec.height = C.int(info.H)
@@ -463,6 +477,9 @@ func (f *AVFormat) AddVideoStream2(info *AVStreamInfo, extra []byte) (err error)
 	// setup stream
 	f.m.video_st.time_base.num = 1
 	f.m.video_st.time_base.den = 1000
+	if info.Tbn > 0 {
+		f.m.video_st.time_base.den = C.int(info.Tbn)
+	}
 
 	avLock.Lock()
 	defer avLock.Unlock()
@@ -582,7 +599,9 @@ func (f *AVFormat) WriteVideoData(nal []byte, timeStamp uint32, isKeyFrame bool)
 		ikf = 1
 	}
 
-	r := C.write_pkt2(&f.m, (*C.uint8_t)(unsafe.Pointer(&nal[0])), (C.int)(len(nal)), C.int64_t(f.pts), C.int(ikf))
+	sz := len(nal)
+	//	r := C.write_pkt2(&f.m, (*C.uint8_t)(unsafe.Pointer(&nal[0])), (C.int)(sz), C.int64_t(f.pts), C.int(ikf))
+	r := C.write_pkt2(&f.m, (*C.uint8_t)(unsafe.Pointer(&nal[0])), (C.int)(sz), C.int64_t(f.pts), C.int(ikf))
 	f.pts++
 
 	if int(r) != 0 {

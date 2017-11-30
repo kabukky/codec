@@ -5,5 +5,8 @@
 *.json
 *.flv
 *.db
+libav_win32_amd64.pc
+include/
+lib/
 test/h264_decoder/h264_decoder
 test/h264_decoder/out

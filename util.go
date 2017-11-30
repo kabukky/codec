@@ -1,29 +1,12 @@
-/*
-
-Golang h264,aac decoder/encoder libav wrapper
-
-	d, err = codec.NewAACEncoder()
-	data, err = d.Encode(samples)
-
-	d, err = codec.NewAACDecoder(aaccfg)
-	samples, err = d.Decode(data)
-
-	var img *image.YCbCr
-	d, err = codec.NewH264Encoder(640, 480)
-	img, err = d.Encode(img)
-
-	d, err = codec.NewH264Decoder(pps)
-	img, err = d.Decode(nal)
-*/
 package codec
 
 import (
+	"image"
 	"reflect"
 	"unsafe"
 
 	/*
-		#cgo CFLAGS: -I/usr/local/include
-		#cgo LDFLAGS: -lavformat -lavcodec -lavresample -lavutil -lx264 -lz -ldl -lm
+		#cgo linux,amd64 pkg-config: libav_linux_amd64.pc
 
 		#include "libavutil/avutil.h"
 		#include "libavformat/avformat.h"
@@ -37,7 +20,9 @@ import (
 	"C"
 )
 
-import "sync"
+import (
+	"sync"
+)
 
 const (
 	AV_LOG_QUIET   = -8
@@ -70,4 +55,17 @@ func fromCPtr(buf unsafe.Pointer, size int) (ret []uint8) {
 	hdr.Len = size
 	hdr.Data = uintptr(buf)
 	return
+}
+
+func pixFmtToAV(pixFmt image.YCbCrSubsampleRatio) C.int {
+	switch pixFmt {
+	case image.YCbCrSubsampleRatio444:
+		return C.AV_PIX_FMT_YUV444P
+	case image.YCbCrSubsampleRatio422:
+		return C.AV_PIX_FMT_YUV422P
+	case image.YCbCrSubsampleRatio420:
+		return C.AV_PIX_FMT_YUV420P
+	}
+
+	return C.AV_PIX_FMT_NONE
 }

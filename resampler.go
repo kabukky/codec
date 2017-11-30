@@ -2,16 +2,16 @@ package codec
 
 import (
 	/*
-							#cgo CFLAGS: -I/usr/local/include
-							#cgo LDFLAGS: -L/usr/local/lib  -lavformat -lavcodec -lavresample -lavutil -lfdk-aac -lx264 -lz -ldl -lm
+		#cgo linux,amd64 pkg-config: libav_linux_amd64.pc
 
-							#include <stdio.h>
-							#include <stdlib.h>
-							#include <stdint.h>
-							#include <string.h>
-							#include "libavcodec/avcodec.h"
-							#include "libavutil/avutil.h"
-							#include "libavresample/avresample.h"
+		#include <stdio.h>
+		#include <stdlib.h>
+		#include <stdint.h>
+		#include <string.h>
+		#include "libavcodec/avcodec.h"
+		#include "libavutil/avutil.h"
+		#include "libavutil/opt.h"
+		#include "libavresample/avresample.h"
 
 							typedef struct {
 							    AVAudioResampleContext *avr;

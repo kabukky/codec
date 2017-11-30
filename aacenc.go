@@ -2,8 +2,7 @@ package codec
 
 import (
 	/*
-					#cgo CFLAGS: -I/usr/local/include
-					#cgo LDFLAGS: -L/usr/local/lib  -lavformat -lavcodec -lavresample -lavutil -lx264 -lz -ldl -lm
+		#cgo linux,amd64 pkg-config: libav_linux_amd64.pc
 
 
 					#include <stdio.h>
@@ -204,6 +203,12 @@ const (
 	AV_SAMPLE_FMT_S32P int32 = 7 ///< signed 32 bits, planar
 	AV_SAMPLE_FMT_FLTP int32 = 8 ///< float, planar
 	AV_SAMPLE_FMT_DBLP int32 = 9 ///< double, planar
+)
+
+const (
+	AV_CODEC_ID_NONE = C.AV_CODEC_ID_NONE
+	AV_CODEC_ID_H264 = C.AV_CODEC_ID_H264
+	AV_CODEC_ID_VP8  = C.AV_CODEC_ID_VP8
 )
 
 type AChannelSamples []byte
@@ -536,7 +541,9 @@ func (m *AACEncoder) Encode3(channels []AChannelSamples, timeStamp int64) (ret *
 
 	// set pts, pts in frame count
 	// recalc ts from ms to frames
-	m.m.f.pts = C.int64_t(timeStamp * 44100 / 1000)
+	//m.m.f.pts = C.int64_t(timeStamp * 44100 / 1000)
+	//m.m.f.pts = C.int64_t(timeStamp * 48)
+	//m.m.f.pts += 1024
 
 	// encode samples
 	C.aacenc_encode(&m.m)
@@ -557,6 +564,7 @@ func (m *AACEncoder) Encode3(channels []AChannelSamples, timeStamp int64) (ret *
 		Pts:  int64(m.m.pts),
 		Dts:  int64(m.m.dts),
 		Ts:   timeStamp,
+		//Ts: int64(m.m.pts) * 20 / 1024,
 	}
 
 	C.memcpy(

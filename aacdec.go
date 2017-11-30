@@ -2,11 +2,12 @@ package codec
 
 import (
 	/*
-		#cgo CFLAGS: -I/usr/local/include
-		#cgo LDFLAGS: -L/usr/local/lib  -lavformat -lavcodec -lavresample -lavutil -lx264 -lz -ldl -lm
+		#cgo linux,amd64 pkg-config: libav_linux_amd64.pc
 
 		#include "libavcodec/avcodec.h"
 		#include "libavutil/avutil.h"
+		#include "libavutil/channel_layout.h"
+
 		#include <string.h>
 		#include <stdio.h>
 
@@ -25,6 +26,8 @@ import (
 		}
 
 		static int aacdec_new(aacdec_t *m, int codec_id, uint8_t *buf, int len) {
+			av_log(m->ctx, AV_LOG_DEBUG, "Create new decoder, codec id:%d\n",codec_id);
+
 			m->c = avcodec_find_decoder(codec_id);
 			m->ctx = avcodec_alloc_context3(m->c);
 			m->f = av_frame_alloc();
@@ -32,10 +35,12 @@ import (
 				m->ctx->extradata = buf;
 				m->ctx->extradata_size = len;
 			}
-			m->ctx->channels = 1;
-			m->ctx->channel_layout = av_get_default_channel_layout(1);
-			m->ctx->sample_fmt = m->c->sample_fmts[0];
 
+			// m->ctx->channels = 2;
+			// m->ctx->channel_layout = av_get_default_channel_layout(2);
+			// m->ctx->sample_fmt = m->c->sample_fmts[0];
+
+			av_log(m->ctx, AV_LOG_DEBUG, "Open codec %s\n",m->c->name);
 			int r = avcodec_open2(m->ctx, m->c, 0);
 			if(r != 0) {
 				static char error_buffer[255];
@@ -44,6 +49,7 @@ import (
 			}
 
 			m->sample_size = av_get_bytes_per_sample(m->ctx->sample_fmt);
+			av_log(m->ctx, AV_LOG_DEBUG, "Open codec %s ok, sample size: %d\n",m->c->name,m->sample_size);
 
 			av_log(m->ctx, AV_LOG_DEBUG, "Audio decoder:, channels: %d, ch_layout: %ld, sample_fmt: %d, planar: %d\n", m->ctx->channels,m->ctx->channel_layout,m->ctx->sample_fmt,av_sample_fmt_is_planar(m->ctx->sample_fmt));
 
@@ -139,6 +145,10 @@ func NewAACDecoder(codec string, header []byte) (m *AACDecoder, err error) {
 
 	codec_id := 0
 	switch codec {
+	case "opus":
+		codec_id = C.AV_CODEC_ID_OPUS
+	case "OPUS":
+		codec_id = C.AV_CODEC_ID_OPUS
 	case "aac":
 		codec_id = C.AV_CODEC_ID_AAC
 	case "mulaw", "ulaw":

@@ -2,8 +2,7 @@ package codec
 
 import (
 	/*
-		#cgo CFLAGS: -I/usr/local/include
-		#cgo LDFLAGS: -lavformat -lavcodec -lavresample -lavutil -lx264 -lz -ldl -lm
+		#cgo linux,amd64 pkg-config: libav_linux_amd64.pc
 
 		#include "libavcodec/avcodec.h"
 	*/

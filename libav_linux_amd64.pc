@@ -1,0 +1,22 @@
+pc=${pcfiledir}
+
+Name: codec
+Description: codec
+Version: 1
+
+Cflags: \
+	-I/usr/local/include 
+
+Libs: \
+	-L/usr/local/lib \
+	-lavformat \
+	-lavcodec \
+	-lavresample \
+	-lavutil \
+	-lswscale \
+	-lx264 \
+	-lfdk-aac \
+	-lvpx \
+	-lz \
+	-ldl \
+	-lm
