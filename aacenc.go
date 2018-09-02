@@ -58,7 +58,7 @@ import (
 						m->ctx->channel_layout = m->channel_layout;
 						m->ctx->profile = m->profile;
 				  		m->ctx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
-						m->ctx->flags |= CODEC_FLAG_GLOBAL_HEADER;
+						m->ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 
 						int r = avcodec_open2(m->ctx, m->c, NULL);
 						if(r != 0) {

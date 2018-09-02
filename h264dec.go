@@ -82,8 +82,8 @@ import (
 			// use size with FF_INPUT_BUFFER_PADDING_SIZE
 			// create reference counted buffer
 			void *new_packet_data;
-			new_packet_data = av_malloc(len+ FF_INPUT_BUFFER_PADDING_SIZE);
-			memset(new_packet_data + len, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+			new_packet_data = av_malloc(len+ AV_INPUT_BUFFER_PADDING_SIZE);
+			memset(new_packet_data + len, 0, AV_INPUT_BUFFER_PADDING_SIZE);
 			memcpy(new_packet_data, data, len);
 
 			r = av_packet_from_data(&pkt, (uint8_t *)new_packet_data, len);

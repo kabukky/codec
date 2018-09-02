@@ -319,6 +319,7 @@ import (
 	"C"
 	"errors"
 	"image"
+
 	//	"strings"
 	"bytes"
 	//"log"
@@ -454,11 +455,11 @@ func (f *AVFormat) AddVideoStream2(info *AVStreamInfo, extra []byte) (err error)
 
 	switch info.Pixfmt {
 	case image.YCbCrSubsampleRatio444:
-		f.m.video_st.codec.pix_fmt = C.PIX_FMT_YUV444P
+		f.m.video_st.codec.pix_fmt = C.AV_PIX_FMT_YUV444P
 	case image.YCbCrSubsampleRatio422:
-		f.m.video_st.codec.pix_fmt = C.PIX_FMT_YUV422P
+		f.m.video_st.codec.pix_fmt = C.AV_PIX_FMT_YUV422P
 	case image.YCbCrSubsampleRatio420:
-		f.m.video_st.codec.pix_fmt = C.PIX_FMT_YUV420P
+		f.m.video_st.codec.pix_fmt = C.AV_PIX_FMT_YUV420P
 	}
 
 	// h264_mp4toannexb filter use av_free method for extradata
@@ -471,7 +472,7 @@ func (f *AVFormat) AddVideoStream2(info *AVStreamInfo, extra []byte) (err error)
 	// }
 
 	if (int(f.m.ctx.oformat.flags) & int(C.AVFMT_GLOBALHEADER)) != 0 {
-		f.m.video_st.codec.flags |= C.CODEC_FLAG_GLOBAL_HEADER
+		f.m.video_st.codec.flags |= C.AV_CODEC_FLAG_GLOBAL_HEADER
 	}
 
 	// setup stream
@@ -511,11 +512,11 @@ func (f *AVFormat) AddAudioStream2(info *AVStreamInfo, extra []byte) (err error)
 	}
 
 	if (int(f.m.ctx.oformat.flags) & int(C.AVFMT_GLOBALHEADER)) != 0 {
-		f.m.audio_st.codec.flags |= C.CODEC_FLAG_GLOBAL_HEADER
+		f.m.audio_st.codec.flags |= C.AV_CODEC_FLAG_GLOBAL_HEADER
 	}
 
-	if f.m.c.capabilities&C.CODEC_CAP_DELAY > 0 {
-		log.Printf("Audio codec has delay, cap:%+v, flag:%+v", f.m.c.capabilities, C.CODEC_CAP_DELAY)
+	if f.m.c.capabilities&C.AV_CODEC_CAP_DELAY > 0 {
+		log.Printf("Audio codec has delay, cap:%+v, flag:%+v", f.m.c.capabilities, C.AV_CODEC_CAP_DELAY)
 	}
 
 	// setup stream

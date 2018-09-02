@@ -47,7 +47,7 @@ import (
 			m->ctx->pix_fmt = m->pixfmt;
 
 			if(m->global_header) {
-				m->ctx->flags |= CODEC_FLAG_GLOBAL_HEADER;
+				m->ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 			}
 
 			AVFrame *picture;
@@ -70,7 +70,7 @@ import (
 		    m->f = av_frame_alloc();
 
 		    //m->f->format = m->ctx->pix_fmt;
-			m->f->format = PIX_FMT_YUV420P;
+			m->f->format = AV_PIX_FMT_YUV420P;
 		    m->f->width  = m->ctx->width;
 		    m->f->height = m->ctx->height;
 
@@ -163,11 +163,11 @@ func NewH264Encoder(
 
 	switch pixfmt {
 	case image.YCbCrSubsampleRatio444:
-		m.m.pixfmt = C.PIX_FMT_YUV444P
+		m.m.pixfmt = C.AV_PIX_FMT_YUV444P
 	case image.YCbCrSubsampleRatio422:
-		m.m.pixfmt = C.PIX_FMT_YUV422P
+		m.m.pixfmt = C.AV_PIX_FMT_YUV422P
 	case image.YCbCrSubsampleRatio420:
-		m.m.pixfmt = C.PIX_FMT_YUV420P
+		m.m.pixfmt = C.AV_PIX_FMT_YUV420P
 	}
 
 	// for _, opt := range opts {
@@ -241,11 +241,11 @@ func (m *H264Encoder) Init() error {
 	// set pixFmt
 	switch m.Pixfmt {
 	case image.YCbCrSubsampleRatio444:
-		m.m.pixfmt = C.PIX_FMT_YUV444P
+		m.m.pixfmt = C.AV_PIX_FMT_YUV444P
 	case image.YCbCrSubsampleRatio422:
-		m.m.pixfmt = C.PIX_FMT_YUV422P
+		m.m.pixfmt = C.AV_PIX_FMT_YUV422P
 	case image.YCbCrSubsampleRatio420:
-		m.m.pixfmt = C.PIX_FMT_YUV420P
+		m.m.pixfmt = C.AV_PIX_FMT_YUV420P
 	}
 
 	// set preset
@@ -295,7 +295,7 @@ func (m *H264Encoder) Release() {
 
 func (m *H264Encoder) DisableGlobalHeaders() {
 	log.Println("flags before:", m.m.ctx.flags)
-	m.m.ctx.flags ^= C.CODEC_FLAG_GLOBAL_HEADER
+	m.m.ctx.flags ^= C.AV_CODEC_FLAG_GLOBAL_HEADER
 	log.Println("flags after:", m.m.ctx.flags)
 
 	time.Sleep(time.Second * 5)
@@ -310,7 +310,7 @@ func (m *H264Encoder) SetPts(pts int64) {
 }
 
 func (m *H264Encoder) EnableGlobalHeaders() {
-	m.m.ctx.flags ^= C.CODEC_FLAG_GLOBAL_HEADER
+	m.m.ctx.flags ^= C.AV_CODEC_FLAG_GLOBAL_HEADER
 }
 
 func (m *H264Encoder) Encode(img *image.YCbCr, pts int64) (out *H264Out, err error) {
