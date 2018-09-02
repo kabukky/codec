@@ -13,8 +13,8 @@ import (
 
 	"time"
 
+	"github.com/kabukky/codec"
 	"github.com/nareix/joy4/codec/h264parser"
-	"github.com/nnimo/codec"
 	flv "github.com/zhangpeihao/goflv"
 )
 
